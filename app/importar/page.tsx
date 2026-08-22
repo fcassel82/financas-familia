@@ -2,10 +2,13 @@
 
 import { useEffect, useState } from 'react'
 import Papa from 'papaparse'
+import readXlsxFile from 'read-excel-file/browser'
 import { supabase } from '@/lib/supabaseClient'
+import { parseData, parseValor } from '@/lib/parseExtrato'
 
 type Categoria = { id: string; nome: string; tipo: string }
 type Subcategoria = { id: string; categoria_id: string; nome: string }
+type Formato = 'csv' | 'excel' | 'pdf'
 
 type LinhaImportada = {
   data: string
@@ -17,38 +20,29 @@ type LinhaImportada = {
   incluir: boolean
 }
 
-function parseValor(str: string): number {
-  if (!str) return NaN
-  let s = str.trim().replace(/[^\d,.-]/g, '')
-  const temVirgula = s.includes(',')
-  const temPonto = s.includes('.')
-  if (temVirgula && temPonto) {
-    s = s.replace(/\./g, '').replace(',', '.')
-  } else if (temVirgula) {
-    s = s.replace(',', '.')
+function celulaParaTexto(valor: unknown): string {
+  if (valor === null || valor === undefined) return ''
+  if (valor instanceof Date) {
+    const d = String(valor.getDate()).padStart(2, '0')
+    const m = String(valor.getMonth() + 1).padStart(2, '0')
+    const a = valor.getFullYear()
+    return `${d}/${m}/${a}`
   }
-  return parseFloat(s)
-}
-
-function parseData(str: string): string {
-  if (!str) return ''
-  const s = str.trim()
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
-  const partes = s.split(/[\/\-]/)
-  if (partes.length === 3) {
-    const [d, m, anoStr] = partes
-    const a = anoStr.length === 2 ? '20' + anoStr : anoStr
-    return `${a}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`
-  }
-  return s
+  return String(valor)
 }
 
 export default function ImportarPage() {
   const [etapa, setEtapa] = useState<'upload' | 'mapear' | 'revisar'>('upload')
+  const [formato, setFormato] = useState<Formato>('csv')
   const [categorias, setCategorias] = useState<Categoria[]>([])
   const [subcategorias, setSubcategorias] = useState<Subcategoria[]>([])
   const [linhasBrutas, setLinhasBrutas] = useState<Record<string, string>[]>([])
   const [colunas, setColunas] = useState<string[]>([])
+  const [linhasPdf, setLinhasPdf] = useState<{ data: string; descricao: string; valor: number }[]>([])
+  const [processandoArquivo, setProcessandoArquivo] = useState(false)
+  const [arquivoPdf, setArquivoPdf] = useState<File | null>(null)
+  const [pdfPrecisaSenha, setPdfPrecisaSenha] = useState(false)
+  const [senhaPdf, setSenhaPdf] = useState('')
   const [colData, setColData] = useState('')
   const [colDescricao, setColDescricao] = useState('')
   const [colValor, setColValor] = useState('')
@@ -77,31 +71,126 @@ export default function ImportarPage() {
     carregarSubcategorias()
   }, [])
 
-  function handleArquivo(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleArquivo(e: React.ChangeEvent<HTMLInputElement>) {
     const arquivo = e.target.files?.[0]
     if (!arquivo) return
+    setMensagem('')
+    const nome = arquivo.name.toLowerCase()
 
-    Papa.parse<Record<string, string>>(arquivo, {
-      header: true,
-      skipEmptyLines: true,
-      complete: (resultado) => {
-        setLinhasBrutas(resultado.data)
-        setColunas(resultado.meta.fields || [])
+    if (nome.endsWith('.csv')) {
+      setFormato('csv')
+      Papa.parse<Record<string, string>>(arquivo, {
+        header: true,
+        skipEmptyLines: true,
+        complete: (resultado) => {
+          setLinhasBrutas(resultado.data)
+          setColunas(resultado.meta.fields || [])
+          setEtapa('mapear')
+        },
+      })
+      return
+    }
+
+    if (nome.endsWith('.xlsx') || nome.endsWith('.xls')) {
+      setFormato('excel')
+      setProcessandoArquivo(true)
+      try {
+        const abas = await readXlsxFile(arquivo)
+        const [cabecalho, ...resto] = abas[0]?.data ?? []
+        const headers = (cabecalho || []).map((h) => celulaParaTexto(h))
+        const processadas = resto.map((linha) => {
+          const obj: Record<string, string> = {}
+          headers.forEach((h, i) => {
+            obj[h] = celulaParaTexto(linha[i])
+          })
+          return obj
+        })
+        setLinhasBrutas(processadas)
+        setColunas(headers)
         setEtapa('mapear')
-      },
-    })
+      } catch (err) {
+        console.error('Falha ao ler Excel:', err)
+        setMensagem('Não foi possível ler este arquivo Excel. Confira se o formato está correto.')
+      }
+      setProcessandoArquivo(false)
+      return
+    }
+
+    if (nome.endsWith('.pdf')) {
+      setFormato('pdf')
+      setArquivoPdf(arquivo)
+      setPdfPrecisaSenha(false)
+      setSenhaPdf('')
+      await enviarPdf(arquivo, '')
+      return
+    }
+
+    setMensagem('Formato não suportado. Envie um arquivo CSV, Excel (.xlsx/.xls) ou PDF.')
+  }
+
+  async function enviarPdf(arquivo: File, senha: string) {
+    setProcessandoArquivo(true)
+    setMensagem('')
+    try {
+      const { data: sessionData } = await supabase.auth.getSession()
+      const token = sessionData.session?.access_token
+
+      const corpo = new FormData()
+      corpo.append('arquivo', arquivo)
+      if (senha) corpo.append('senha', senha)
+
+      const resposta = await fetch('/api/importar-pdf', {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        body: corpo,
+      })
+      const resultado = await resposta.json()
+
+      if (!resposta.ok) {
+        setPdfPrecisaSenha(!!resultado.precisaSenha)
+        setMensagem(resultado.error || 'Não foi possível ler este PDF.')
+      } else {
+        setPdfPrecisaSenha(false)
+        setLinhasPdf(resultado.transacoes)
+        setEtapa('mapear')
+      }
+    } catch (err) {
+      console.error('Falha ao ler PDF:', err)
+      setMensagem('Não foi possível ler este PDF. Tente novamente.')
+    }
+    setProcessandoArquivo(false)
+  }
+
+  async function tentarSenhaPdf() {
+    if (!arquivoPdf) return
+    await enviarPdf(arquivoPdf, senhaPdf)
   }
 
   function processarMapeamento() {
-    const processadas: LinhaImportada[] = linhasBrutas.map((linha) => ({
-      data: parseData(linha[colData]),
-      descricao: linha[colDescricao],
-      valor: Math.abs(parseValor(linha[colValor])),
-      categoriaId: '',
-      subcategoriaId: '',
-      escopo: escopoBatch,
-      incluir: true,
-    }))
+    let processadas: LinhaImportada[]
+
+    if (formato === 'pdf') {
+      processadas = linhasPdf.map((l) => ({
+        data: l.data,
+        descricao: l.descricao,
+        valor: l.valor,
+        categoriaId: '',
+        subcategoriaId: '',
+        escopo: escopoBatch,
+        incluir: true,
+      }))
+    } else {
+      processadas = linhasBrutas.map((linha) => ({
+        data: parseData(linha[colData]),
+        descricao: linha[colDescricao],
+        valor: Math.abs(parseValor(linha[colValor])),
+        categoriaId: '',
+        subcategoriaId: '',
+        escopo: escopoBatch,
+        incluir: true,
+      }))
+    }
+
     setLinhas(processadas)
     setEtapa('revisar')
   }
@@ -116,7 +205,11 @@ export default function ImportarPage() {
     )
   }
 
-  function atualizarLinha(index: number, campo: keyof LinhaImportada, valor: string | boolean) {
+  function atualizarLinha(
+    index: number,
+    campo: keyof LinhaImportada,
+    valor: string | boolean | number
+  ) {
     setLinhas((atual) =>
       atual.map((l, i) => {
         if (i !== index) return l
@@ -168,6 +261,7 @@ export default function ImportarPage() {
     setEtapa('upload')
     setLinhas([])
     setLinhasBrutas([])
+    setLinhasPdf([])
   }
 
   const categoriasFiltradas = categorias.filter((c) => c.tipo === tipoBatch)
@@ -175,62 +269,109 @@ export default function ImportarPage() {
     (s) => s.categoria_id === categoriaEmMassa
   )
 
+  const podeContinuarMapeamento =
+    formato === 'pdf'
+      ? linhasPdf.length > 0
+      : !!colData && !!colDescricao && !!colValor
+
   return (
     <div className="min-h-screen bg-gray-50 p-6">
       <div className="mx-auto max-w-4xl">
-        <h1 className="mb-6 text-xl font-semibold text-gray-800">Importar Extrato (CSV)</h1>
+        <h1 className="mb-6 text-xl font-semibold text-gray-800">Importar Extrato</h1>
 
         {etapa === 'upload' && (
           <div className="rounded-lg bg-white p-6 shadow-sm">
             <label className="mb-2 block text-sm text-gray-600">
-              Selecione o arquivo CSV do extrato
+              Selecione o arquivo do extrato (CSV, Excel ou PDF)
             </label>
-            <input type="file" accept=".csv" onChange={handleArquivo} />
+            <input
+              type="file"
+              accept=".csv,.xlsx,.xls,.pdf"
+              onChange={handleArquivo}
+              disabled={processandoArquivo}
+            />
+            {processandoArquivo && (
+              <p className="mt-3 text-sm text-gray-500">Lendo arquivo...</p>
+            )}
+            {mensagem && <p className="mt-3 text-sm text-red-600">{mensagem}</p>}
+
+            {pdfPrecisaSenha && (
+              <div className="mt-3 flex items-end gap-2">
+                <div className="flex-1">
+                  <label className="mb-1 block text-sm text-gray-600">Senha do PDF</label>
+                  <input
+                    type="password"
+                    value={senhaPdf}
+                    onChange={(e) => setSenhaPdf(e.target.value)}
+                    className="w-full rounded border border-gray-300 px-3 py-2"
+                  />
+                </div>
+                <button
+                  onClick={tentarSenhaPdf}
+                  disabled={!senhaPdf || processandoArquivo}
+                  className="rounded bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
+                >
+                  Tentar
+                </button>
+              </div>
+            )}
           </div>
         )}
 
         {etapa === 'mapear' && (
           <div className="rounded-lg bg-white p-6 shadow-sm">
-            <p className="mb-4 text-sm text-gray-600">
-              Encontramos {linhasBrutas.length} linhas. Indique qual coluna do seu arquivo
-              corresponde a cada campo:
-            </p>
+            {formato === 'pdf' ? (
+              <p className="mb-4 text-sm text-gray-600">
+                Detectamos {linhasPdf.length} possíveis lançamentos neste PDF. A leitura de PDF é
+                aproximada — revise com atenção os valores e descrições na próxima etapa antes de
+                salvar.
+              </p>
+            ) : (
+              <p className="mb-4 text-sm text-gray-600">
+                Encontramos {linhasBrutas.length} linhas. Indique qual coluna do seu arquivo
+                corresponde a cada campo:
+              </p>
+            )}
 
-            <label className="mb-1 block text-sm text-gray-600">Coluna de Data</label>
-            <select
-              value={colData}
-              onChange={(e) => setColData(e.target.value)}
-              className="mb-4 w-full rounded border border-gray-300 px-3 py-2"
-            >
-              <option value="">Selecione...</option>
-              {colunas.map((c) => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
+            {formato !== 'pdf' && (
+              <>
+                <label className="mb-1 block text-sm text-gray-600">Coluna de Data</label>
+                <select
+                  value={colData}
+                  onChange={(e) => setColData(e.target.value)}
+                  className="mb-4 w-full rounded border border-gray-300 px-3 py-2"
+                >
+                  <option value="">Selecione...</option>
+                  {colunas.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
 
-            <label className="mb-1 block text-sm text-gray-600">Coluna de Descrição</label>
-            <select
-              value={colDescricao}
-              onChange={(e) => setColDescricao(e.target.value)}
-              className="mb-4 w-full rounded border border-gray-300 px-3 py-2"
-            >
-              <option value="">Selecione...</option>
-              {colunas.map((c) => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
+                <label className="mb-1 block text-sm text-gray-600">Coluna de Descrição</label>
+                <select
+                  value={colDescricao}
+                  onChange={(e) => setColDescricao(e.target.value)}
+                  className="mb-4 w-full rounded border border-gray-300 px-3 py-2"
+                >
+                  <option value="">Selecione...</option>
+                  {colunas.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
 
-            <label className="mb-1 block text-sm text-gray-600">Coluna de Valor</label>
-            <select
-              value={colValor}
-              onChange={(e) => setColValor(e.target.value)}
-              className="mb-4 w-full rounded border border-gray-300 px-3 py-2"
-            >
-              <option value="">Selecione...</option>
-              {colunas.map((c) => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
+                <label className="mb-1 block text-sm text-gray-600">Coluna de Valor</label>
+                <select
+                  value={colValor}
+                  onChange={(e) => setColValor(e.target.value)}
+                  className="mb-4 w-full rounded border border-gray-300 px-3 py-2"
+                >
+                  <option value="">Selecione...</option>
+                  {colunas.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </>
+            )}
 
             <label className="mb-1 block text-sm text-gray-600">Banco / Cartão</label>
             <input
@@ -263,7 +404,7 @@ export default function ImportarPage() {
 
             <button
               onClick={processarMapeamento}
-              disabled={!colData || !colDescricao || !colValor}
+              disabled={!podeContinuarMapeamento}
               className="w-full rounded bg-blue-600 py-2 text-white hover:bg-blue-700 disabled:opacity-50"
             >
               Continuar para revisão
@@ -340,9 +481,33 @@ export default function ImportarPage() {
                           onChange={(e) => atualizarLinha(i, 'incluir', e.target.checked)}
                         />
                       </td>
-                      <td className="p-2">{l.data}</td>
-                      <td className="p-2">{l.descricao}</td>
-                      <td className="p-2">R$ {l.valor.toFixed(2)}</td>
+                      <td className="p-2">
+                        <input
+                          type="date"
+                          value={l.data}
+                          onChange={(e) => atualizarLinha(i, 'data', e.target.value)}
+                          className="w-32 rounded border border-gray-300 px-2 py-1"
+                        />
+                      </td>
+                      <td className="p-2">
+                        <input
+                          type="text"
+                          value={l.descricao}
+                          onChange={(e) => atualizarLinha(i, 'descricao', e.target.value)}
+                          className="w-40 rounded border border-gray-300 px-2 py-1"
+                        />
+                      </td>
+                      <td className="p-2">
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={l.valor}
+                          onChange={(e) =>
+                            atualizarLinha(i, 'valor', parseFloat(e.target.value) || 0)
+                          }
+                          className="w-24 rounded border border-gray-300 px-2 py-1"
+                        />
+                      </td>
                       <td className="p-2">
                         <select
                           value={l.categoriaId}

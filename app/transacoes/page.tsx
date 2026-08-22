@@ -12,6 +12,7 @@ type Transacao = {
   tipo: string
   escopo: string
   banco_cartao: string | null
+  dono_id: string
   categorias: { nome: string } | null
   subcategorias: { nome: string } | null
 }
@@ -34,6 +35,7 @@ export default function TransacoesPage() {
   const [subcategorias, setSubcategorias] = useState<Subcategoria[]>([])
   const [membros, setMembros] = useState<Membro[]>([])
   const [isAdmin, setIsAdmin] = useState(false)
+  const [userId, setUserId] = useState('')
 
   const [dataInicio, setDataInicio] = useState('')
   const [dataFim, setDataFim] = useState('')
@@ -46,6 +48,7 @@ export default function TransacoesPage() {
     async function carregarFiltros() {
       const { data: userData } = await supabase.auth.getUser()
       const userId = userData.user?.id
+      if (userId) setUserId(userId)
 
       const [{ data: categoriasData }, { data: subcategoriasData }, { data: perfilData }] =
         await Promise.all([
@@ -73,7 +76,7 @@ export default function TransacoesPage() {
       setCarregando(true)
       let query = supabase
         .from('transacoes')
-        .select('id, data, descricao, valor, tipo, escopo, banco_cartao, categorias(nome), subcategorias(nome)')
+        .select('id, data, descricao, valor, tipo, escopo, banco_cartao, dono_id, categorias(nome), subcategorias(nome)')
         .eq('escopo', aba)
         .order('data', { ascending: false })
 
@@ -266,13 +269,23 @@ export default function TransacoesPage() {
                     {t.banco_cartao ? ` · ${t.banco_cartao}` : ''}
                   </p>
                 </div>
-                <p
-                  className={`text-sm font-semibold ${
-                    t.tipo === 'receita' ? 'text-green-600' : 'text-red-600'
-                  }`}
-                >
-                  {t.tipo === 'receita' ? '+' : '-'} R$ {Number(t.valor).toFixed(2)}
-                </p>
+                <div className="flex items-center gap-3">
+                  <p
+                    className={`text-sm font-semibold ${
+                      t.tipo === 'receita' ? 'text-green-600' : 'text-red-600'
+                    }`}
+                  >
+                    {t.tipo === 'receita' ? '+' : '-'} R$ {Number(t.valor).toFixed(2)}
+                  </p>
+                  {(isAdmin || t.dono_id === userId) && (
+                    <Link
+                      href={`/lancamentos?id=${t.id}`}
+                      className="text-xs text-blue-600 hover:underline"
+                    >
+                      Editar
+                    </Link>
+                  )}
+                </div>
               </div>
             ))}
         </div>

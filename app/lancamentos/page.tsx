@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
 
 type Categoria = {
@@ -9,7 +10,11 @@ type Categoria = {
   tipo: string
 }
 
-export default function LancamentosPage() {
+function LancamentoForm() {
+  const searchParams = useSearchParams()
+  const idEdicao = searchParams.get('id')
+  const router = useRouter()
+
   const [categorias, setCategorias] = useState<Categoria[]>([])
   const [data, setData] = useState('')
   const [descricao, setDescricao] = useState('')
@@ -20,6 +25,7 @@ export default function LancamentosPage() {
   const [bancoCartao, setBancoCartao] = useState('')
   const [mensagem, setMensagem] = useState('')
   const [salvando, setSalvando] = useState(false)
+  const [carregando, setCarregando] = useState(!!idEdicao)
 
   useEffect(() => {
     async function carregarCategorias() {
@@ -35,10 +41,61 @@ export default function LancamentosPage() {
     carregarCategorias()
   }, [])
 
+  useEffect(() => {
+    if (!idEdicao) return
+
+    async function carregarTransacao() {
+      const { data: transacao, error } = await supabase
+        .from('transacoes')
+        .select('data, descricao, categoria_id, valor, tipo, escopo, banco_cartao')
+        .eq('id', idEdicao)
+        .single()
+
+      if (!error && transacao) {
+        setData(transacao.data)
+        setDescricao(transacao.descricao)
+        setCategoriaId(transacao.categoria_id)
+        setValor(String(transacao.valor))
+        setTipo(transacao.tipo)
+        setEscopo(transacao.escopo)
+        setBancoCartao(transacao.banco_cartao ?? '')
+      } else {
+        setMensagem('Não foi possível carregar este lançamento.')
+      }
+      setCarregando(false)
+    }
+    carregarTransacao()
+  }, [idEdicao])
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setMensagem('')
     setSalvando(true)
+
+    if (idEdicao) {
+      const { error } = await supabase
+        .from('transacoes')
+        .update({
+          data,
+          descricao,
+          categoria_id: categoriaId,
+          valor: parseFloat(valor),
+          tipo,
+          escopo,
+          banco_cartao: bancoCartao || null,
+        })
+        .eq('id', idEdicao)
+
+      setSalvando(false)
+
+      if (error) {
+        setMensagem('Erro ao salvar: ' + error.message)
+        return
+      }
+
+      router.push('/transacoes')
+      return
+    }
 
     const { data: userData } = await supabase.auth.getUser()
     const userId = userData.user?.id
@@ -70,11 +127,19 @@ export default function LancamentosPage() {
 
   const categoriasFiltradas = categorias.filter((c) => c.tipo === tipo)
 
+  if (carregando) {
+    return (
+      <div className="min-h-screen bg-gray-50 p-6">
+        <p className="text-sm text-gray-500">Carregando...</p>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 p-6">
       <div className="mx-auto max-w-md rounded-lg bg-white p-6 shadow-md">
         <h1 className="mb-6 text-xl font-semibold text-gray-800">
-          Novo Lançamento
+          {idEdicao ? 'Editar Lançamento' : 'Novo Lançamento'}
         </h1>
 
         <form onSubmit={handleSubmit}>
@@ -172,7 +237,9 @@ export default function LancamentosPage() {
           {mensagem && (
             <p
               className={`mb-4 text-sm ${
-                mensagem.startsWith('Erro') ? 'text-red-600' : 'text-green-600'
+                mensagem.startsWith('Erro') || mensagem.startsWith('Não')
+                  ? 'text-red-600'
+                  : 'text-green-600'
               }`}
             >
               {mensagem}
@@ -184,10 +251,28 @@ export default function LancamentosPage() {
             disabled={salvando}
             className="w-full rounded bg-blue-600 py-2 text-white hover:bg-blue-700 disabled:opacity-50"
           >
-            {salvando ? 'Salvando...' : 'Salvar Lançamento'}
+            {salvando
+              ? 'Salvando...'
+              : idEdicao
+                ? 'Salvar Alterações'
+                : 'Salvar Lançamento'}
           </button>
         </form>
       </div>
     </div>
+  )
+}
+
+export default function LancamentosPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-gray-50 p-6">
+          <p className="text-sm text-gray-500">Carregando...</p>
+        </div>
+      }
+    >
+      <LancamentoForm />
+    </Suspense>
   )
 }
