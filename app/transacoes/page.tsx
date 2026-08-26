@@ -1,8 +1,26 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabaseClient'
+import {
+  chaveMes,
+  dataBR,
+  deslocarMes,
+  limitesDoMes,
+  moeda,
+  normalizar,
+  rotuloMesLongo,
+} from '@/lib/formato'
+import { IconeMais, IconeSeta } from '@/components/Icones'
+import {
+  BotaoPrimario,
+  CabecalhoPagina,
+  Campo,
+  EstadoVazio,
+  Pagina,
+  classeInput,
+} from '@/components/ui'
 
 type Transacao = {
   id: string
@@ -11,20 +29,17 @@ type Transacao = {
   valor: number
   tipo: string
   escopo: string
-  banco_cartao: string | null
   dono_id: string
   categorias: { nome: string } | null
   subcategorias: { nome: string } | null
+  contas: { nome: string; cor: string | null } | null
+  cartoes_credito: { nome: string; cor: string | null } | null
 }
 
 type Categoria = { id: string; nome: string }
 type Subcategoria = { id: string; categoria_id: string; nome: string }
 type Membro = { id: string; nome: string }
-
-function formatarDataBR(iso: string): string {
-  const [ano, mes, dia] = iso.split('-')
-  return `${dia}/${mes}/${ano}`
-}
+type Conta = { id: string; nome: string }
 
 export default function TransacoesPage() {
   const [aba, setAba] = useState<'familiar' | 'pessoal'>('familiar')
@@ -33,263 +48,365 @@ export default function TransacoesPage() {
 
   const [categorias, setCategorias] = useState<Categoria[]>([])
   const [subcategorias, setSubcategorias] = useState<Subcategoria[]>([])
+  const [contas, setContas] = useState<Conta[]>([])
   const [membros, setMembros] = useState<Membro[]>([])
   const [isAdmin, setIsAdmin] = useState(false)
   const [userId, setUserId] = useState('')
 
-  const [dataInicio, setDataInicio] = useState('')
-  const [dataFim, setDataFim] = useState('')
+  const [mes, setMes] = useState(chaveMes(new Date()))
+  const [busca, setBusca] = useState('')
   const [categoriaFiltro, setCategoriaFiltro] = useState('')
   const [subcategoriaFiltro, setSubcategoriaFiltro] = useState('')
-  const [bancoCartaoFiltro, setBancoCartaoFiltro] = useState('')
+  const [contaFiltro, setContaFiltro] = useState('')
   const [membroFiltro, setMembroFiltro] = useState('')
+  const [filtrosVisiveis, setFiltrosVisiveis] = useState(false)
 
   useEffect(() => {
-    async function carregarFiltros() {
+    async function carregarListas() {
       const { data: userData } = await supabase.auth.getUser()
-      const userId = userData.user?.id
-      if (userId) setUserId(userId)
+      const uid = userData.user?.id
+      if (uid) setUserId(uid)
 
-      const [{ data: categoriasData }, { data: subcategoriasData }, { data: perfilData }] =
-        await Promise.all([
-          supabase.from('categorias').select('id, nome').order('nome'),
-          supabase.from('subcategorias').select('id, categoria_id, nome').order('nome'),
-          userId ? supabase.from('perfis').select('papel').eq('id', userId).single() : Promise.resolve({ data: null }),
-        ])
+      const [{ data: cats }, { data: subs }, { data: cts }, { data: perfil }] = await Promise.all([
+        supabase.from('categorias').select('id, nome').order('nome'),
+        supabase.from('subcategorias').select('id, categoria_id, nome').order('nome'),
+        supabase.from('contas').select('id, nome').order('nome'),
+        uid
+          ? supabase.from('perfis').select('papel').eq('id', uid).single()
+          : Promise.resolve({ data: null }),
+      ])
 
-      if (categoriasData) setCategorias(categoriasData)
-      if (subcategoriasData) setSubcategorias(subcategoriasData)
+      setCategorias((cats ?? []) as Categoria[])
+      setSubcategorias((subs ?? []) as Subcategoria[])
+      setContas((cts ?? []) as Conta[])
 
-      const admin = perfilData?.papel === 'admin'
+      const admin = perfil?.papel === 'admin'
       setIsAdmin(admin)
 
       if (admin) {
         const { data: membrosData } = await supabase.from('perfis').select('id, nome').order('nome')
-        if (membrosData) setMembros(membrosData)
+        setMembros((membrosData ?? []) as Membro[])
       }
     }
-    carregarFiltros()
+    carregarListas()
   }, [])
 
+  const carregar = useCallback(async () => {
+    const { inicio, fim } = limitesDoMes(mes)
+
+    let query = supabase
+      .from('transacoes')
+      .select(
+        'id, data, descricao, valor, tipo, escopo, dono_id, categorias(nome), subcategorias(nome), contas(nome, cor), cartoes_credito(nome, cor)'
+      )
+      .eq('escopo', aba)
+      .gte('data', inicio)
+      .lte('data', fim)
+      .order('data', { ascending: false })
+
+    if (categoriaFiltro) query = query.eq('categoria_id', categoriaFiltro)
+    if (subcategoriaFiltro) query = query.eq('subcategoria_id', subcategoriaFiltro)
+    if (contaFiltro) query = query.eq('conta_id', contaFiltro)
+    if (isAdmin && membroFiltro) query = query.eq('dono_id', membroFiltro)
+
+    const { data, error } = await query
+
+    if (!error && data) setTransacoes(data as unknown as Transacao[])
+    setCarregando(false)
+  }, [aba, mes, categoriaFiltro, subcategoriaFiltro, contaFiltro, membroFiltro, isAdmin])
+
   useEffect(() => {
-    async function carregar() {
-      setCarregando(true)
-      let query = supabase
-        .from('transacoes')
-        .select('id, data, descricao, valor, tipo, escopo, banco_cartao, dono_id, categorias(nome), subcategorias(nome)')
-        .eq('escopo', aba)
-        .order('data', { ascending: false })
-
-      if (dataInicio) query = query.gte('data', dataInicio)
-      if (dataFim) query = query.lte('data', dataFim)
-      if (categoriaFiltro) query = query.eq('categoria_id', categoriaFiltro)
-      if (subcategoriaFiltro) query = query.eq('subcategoria_id', subcategoriaFiltro)
-      if (bancoCartaoFiltro) query = query.ilike('banco_cartao', `%${bancoCartaoFiltro}%`)
-      if (isAdmin && membroFiltro) query = query.eq('dono_id', membroFiltro)
-
-      const { data, error } = await query
-
-      if (!error && data) {
-        setTransacoes(data as unknown as Transacao[])
-      }
-      setCarregando(false)
-    }
+    // Busca de dados: o estado só muda depois do await da consulta, mas a regra
+    // não distingue esse caso de um setState realmente síncrono.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     carregar()
-  }, [aba, dataInicio, dataFim, categoriaFiltro, subcategoriaFiltro, bancoCartaoFiltro, membroFiltro, isAdmin])
+  }, [carregar])
 
   const subcategoriasFiltradas = useMemo(
     () => subcategorias.filter((s) => s.categoria_id === categoriaFiltro),
     [subcategorias, categoriaFiltro]
   )
 
+  // Busca rápida: filtra em memória para resposta instantânea.
+  // Ignora acentos, para que "dizimo" encontre "Dízimo".
+  const visiveis = useMemo(() => {
+    const termo = normalizar(busca.trim())
+    if (!termo) return transacoes
+    return transacoes.filter((t) =>
+      normalizar(
+        `${t.descricao} ${t.categorias?.nome ?? ''} ${t.subcategorias?.nome ?? ''}`
+      ).includes(termo)
+    )
+  }, [transacoes, busca])
+
   function limparFiltros() {
-    setDataInicio('')
-    setDataFim('')
+    setBusca('')
     setCategoriaFiltro('')
     setSubcategoriaFiltro('')
-    setBancoCartaoFiltro('')
+    setContaFiltro('')
     setMembroFiltro('')
   }
 
-  const filtrosAtivos =
-    !!dataInicio || !!dataFim || !!categoriaFiltro || !!subcategoriaFiltro || !!bancoCartaoFiltro || !!membroFiltro
+  const temFiltro =
+    !!busca || !!categoriaFiltro || !!subcategoriaFiltro || !!contaFiltro || !!membroFiltro
 
-  const total = transacoes.reduce((soma, t) => {
-    return t.tipo === 'receita' ? soma + Number(t.valor) : soma - Number(t.valor)
-  }, 0)
+  const receitas = visiveis.filter((t) => t.tipo === 'receita').reduce((s, t) => s + Number(t.valor), 0)
+  const despesas = visiveis.filter((t) => t.tipo === 'despesa').reduce((s, t) => s + Number(t.valor), 0)
+  const saldo = receitas - despesas
+
+  // Agrupa por dia para exibição
+  const porDia = useMemo(() => {
+    const mapa = new Map<string, Transacao[]>()
+    for (const t of visiveis) {
+      if (!mapa.has(t.data)) mapa.set(t.data, [])
+      mapa.get(t.data)!.push(t)
+    }
+    return Array.from(mapa.entries())
+  }, [visiveis])
+
+  const classeAba = (valor: string) =>
+    `rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+      aba === valor
+        ? 'bg-primaria text-white'
+        : 'border border-borda bg-superficie text-texto-suave hover:bg-fundo'
+    }`
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      <div className="mx-auto max-w-2xl">
-        <div className="mb-4 flex items-center justify-between">
-          <h1 className="text-xl font-semibold text-gray-800">Lançamentos</h1>
+    <Pagina>
+      <CabecalhoPagina
+        titulo="Lançamentos"
+        acao={
           <Link
             href="/lancamentos"
-            className="rounded bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700"
+            className="inline-flex items-center gap-2 rounded-lg bg-primaria px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primaria-escura"
           >
-            + Novo lançamento
+            <IconeMais className="h-4 w-4" />
+            Novo lançamento
           </Link>
+        }
+      />
+
+      {/* Seletor de mês */}
+      <div className="cartao mb-4 flex items-center justify-between p-2">
+        <button
+          onClick={() => setMes(deslocarMes(mes, -1))}
+          aria-label="Mês anterior"
+          className="rounded-lg p-2 text-texto-suave transition-colors hover:bg-fundo"
+        >
+          <IconeSeta direcao="esquerda" />
+        </button>
+        <span className="text-sm font-semibold text-texto">{rotuloMesLongo(mes)}</span>
+        <button
+          onClick={() => setMes(deslocarMes(mes, 1))}
+          aria-label="Próximo mês"
+          className="rounded-lg p-2 text-texto-suave transition-colors hover:bg-fundo"
+        >
+          <IconeSeta direcao="direita" />
+        </button>
+      </div>
+
+      {/* Abas de escopo */}
+      <div className="mb-4 flex gap-2">
+        <button onClick={() => setAba('familiar')} className={classeAba('familiar')}>
+          Familiares
+        </button>
+        <button onClick={() => setAba('pessoal')} className={classeAba('pessoal')}>
+          Meus pessoais
+        </button>
+      </div>
+
+      {/* Busca + filtros */}
+      <div className="cartao mb-4 p-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            className={`${classeInput} flex-1 min-w-48`}
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+            placeholder="Buscar por descrição ou categoria..."
+            aria-label="Busca rápida"
+          />
+          <button
+            onClick={() => setFiltrosVisiveis((v) => !v)}
+            className="rounded-lg border border-borda px-4 py-2 text-sm font-medium text-texto transition-colors hover:bg-fundo"
+          >
+            {filtrosVisiveis ? 'Ocultar filtros' : 'Filtros'}
+          </button>
+          {temFiltro && (
+            <button
+              onClick={limparFiltros}
+              className="text-sm font-medium text-primaria hover:underline"
+            >
+              Limpar
+            </button>
+          )}
         </div>
 
-        <div className="mb-4 flex gap-2">
-          <button
-            onClick={() => setAba('familiar')}
-            className={`rounded px-4 py-2 text-sm ${
-              aba === 'familiar'
-                ? 'bg-blue-600 text-white'
-                : 'bg-white text-gray-600 border border-gray-300'
-            }`}
-          >
-            Gastos Familiares
-          </button>
-          <button
-            onClick={() => setAba('pessoal')}
-            className={`rounded px-4 py-2 text-sm ${
-              aba === 'pessoal'
-                ? 'bg-blue-600 text-white'
-                : 'bg-white text-gray-600 border border-gray-300'
-            }`}
-          >
-            Meus Lançamentos Pessoais
-          </button>
-        </div>
-
-        <div className="mb-4 rounded-lg bg-white p-4 shadow-sm">
-          <div className="mb-3 flex items-center justify-between">
-            <p className="text-sm font-medium text-gray-700">Filtros</p>
-            {filtrosAtivos && (
-              <button onClick={limparFiltros} className="text-xs text-blue-600 hover:underline">
-                Limpar filtros
-              </button>
-            )}
-          </div>
-
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-            <div>
-              <label className="mb-1 block text-xs text-gray-500">De</label>
-              <input
-                type="date"
-                value={dataInicio}
-                onChange={(e) => setDataInicio(e.target.value)}
-                className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs text-gray-500">Até</label>
-              <input
-                type="date"
-                value={dataFim}
-                onChange={(e) => setDataFim(e.target.value)}
-                className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs text-gray-500">Banco / Cartão</label>
-              <input
-                type="text"
-                value={bancoCartaoFiltro}
-                onChange={(e) => setBancoCartaoFiltro(e.target.value)}
-                placeholder="Ex: Nubank"
-                className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs text-gray-500">Categoria</label>
+        {filtrosVisiveis && (
+          <div className="mt-4 grid gap-3 border-t border-borda pt-4 sm:grid-cols-2 lg:grid-cols-4">
+            <Campo rotulo="Categoria">
               <select
+                className={classeInput}
                 value={categoriaFiltro}
                 onChange={(e) => {
                   setCategoriaFiltro(e.target.value)
                   setSubcategoriaFiltro('')
                 }}
-                className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
               >
                 <option value="">Todas</option>
                 {categorias.map((c) => (
-                  <option key={c.id} value={c.id}>{c.nome}</option>
+                  <option key={c.id} value={c.id}>
+                    {c.nome}
+                  </option>
                 ))}
               </select>
-            </div>
-            <div>
-              <label className="mb-1 block text-xs text-gray-500">Subcategoria</label>
+            </Campo>
+
+            <Campo rotulo="Subcategoria">
               <select
+                className={classeInput}
                 value={subcategoriaFiltro}
                 onChange={(e) => setSubcategoriaFiltro(e.target.value)}
                 disabled={!categoriaFiltro}
-                className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm disabled:bg-gray-100"
               >
                 <option value="">Todas</option>
                 {subcategoriasFiltradas.map((s) => (
-                  <option key={s.id} value={s.id}>{s.nome}</option>
+                  <option key={s.id} value={s.id}>
+                    {s.nome}
+                  </option>
                 ))}
               </select>
-            </div>
+            </Campo>
+
+            <Campo rotulo="Conta">
+              <select
+                className={classeInput}
+                value={contaFiltro}
+                onChange={(e) => setContaFiltro(e.target.value)}
+              >
+                <option value="">Todas</option>
+                {contas.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.nome}
+                  </option>
+                ))}
+              </select>
+            </Campo>
+
             {isAdmin && (
-              <div>
-                <label className="mb-1 block text-xs text-gray-500">Membro</label>
+              <Campo rotulo="Membro">
                 <select
+                  className={classeInput}
                   value={membroFiltro}
                   onChange={(e) => setMembroFiltro(e.target.value)}
-                  className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
                 >
                   <option value="">Todos</option>
                   {membros.map((m) => (
-                    <option key={m.id} value={m.id}>{m.nome}</option>
+                    <option key={m.id} value={m.id}>
+                      {m.nome}
+                    </option>
                   ))}
                 </select>
-              </div>
+              </Campo>
             )}
           </div>
-        </div>
+        )}
+      </div>
 
-        <div className="mb-4 rounded-lg bg-white p-4 shadow-sm">
-          <p className="text-sm text-gray-500">Saldo do período</p>
-          <p className={`text-2xl font-semibold ${total >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-            R$ {total.toFixed(2)}
+      {/* Resumo do período */}
+      <div className="mb-4 grid gap-3 sm:grid-cols-3">
+        <div className="cartao p-3">
+          <p className="text-xs text-texto-suave">Receitas</p>
+          <p className="whitespace-nowrap text-lg font-semibold text-receita">{moeda(receitas)}</p>
+        </div>
+        <div className="cartao p-3">
+          <p className="text-xs text-texto-suave">Despesas</p>
+          <p className="whitespace-nowrap text-lg font-semibold text-despesa">{moeda(despesas)}</p>
+        </div>
+        <div className="cartao p-3">
+          <p className="text-xs text-texto-suave">Saldo</p>
+          <p
+            className={`whitespace-nowrap text-lg font-semibold ${
+              saldo >= 0 ? 'text-receita' : 'text-despesa'
+            }`}
+          >
+            {moeda(saldo)}
           </p>
         </div>
-
-        <div className="rounded-lg bg-white shadow-sm">
-          {carregando && <p className="p-4 text-sm text-gray-500">Carregando...</p>}
-
-          {!carregando && transacoes.length === 0 && (
-            <p className="p-4 text-sm text-gray-500">Nenhum lançamento encontrado.</p>
-          )}
-
-          {!carregando &&
-            transacoes.map((t) => (
-              <div
-                key={t.id}
-                className="flex items-center justify-between border-b border-gray-100 p-4 last:border-0"
-              >
-                <div>
-                  <p className="text-sm font-medium text-gray-800">{t.descricao}</p>
-                  <p className="text-xs text-gray-500">
-                    {formatarDataBR(t.data)} · {t.categorias?.nome ?? 'Sem categoria'}
-                    {t.subcategorias?.nome ? ` / ${t.subcategorias.nome}` : ''}
-                    {t.banco_cartao ? ` · ${t.banco_cartao}` : ''}
-                  </p>
-                </div>
-                <div className="flex items-center gap-3">
-                  <p
-                    className={`text-sm font-semibold ${
-                      t.tipo === 'receita' ? 'text-green-600' : 'text-red-600'
-                    }`}
-                  >
-                    {t.tipo === 'receita' ? '+' : '-'} R$ {Number(t.valor).toFixed(2)}
-                  </p>
-                  {(isAdmin || t.dono_id === userId) && (
-                    <Link
-                      href={`/lancamentos?id=${t.id}`}
-                      className="text-xs text-blue-600 hover:underline"
-                    >
-                      Editar
-                    </Link>
-                  )}
-                </div>
-              </div>
-            ))}
-        </div>
       </div>
-    </div>
+
+      {carregando && <p className="text-sm text-texto-suave">Carregando...</p>}
+
+      {!carregando && visiveis.length === 0 && (
+        <EstadoVazio
+          titulo="Nenhum lançamento encontrado"
+          descricao={
+            temFiltro
+              ? 'Tente ajustar a busca ou os filtros.'
+              : `Nenhum lançamento em ${rotuloMesLongo(mes).toLowerCase()}.`
+          }
+          acao={
+            temFiltro ? (
+              <BotaoPrimario onClick={limparFiltros}>Limpar filtros</BotaoPrimario>
+            ) : undefined
+          }
+        />
+      )}
+
+      {!carregando && visiveis.length > 0 && (
+        <div className="space-y-4">
+          {porDia.map(([dia, itens]) => (
+            <div key={dia} className="cartao overflow-hidden">
+              <div className="border-b border-borda bg-fundo/60 px-4 py-2">
+                <span className="text-xs font-semibold text-texto-suave">{dataBR(dia)}</span>
+              </div>
+              <ul className="divide-y divide-borda">
+                {itens.map((t) => {
+                  const receita = t.tipo === 'receita'
+                  const origem = t.contas?.nome ?? t.cartoes_credito?.nome
+                  const cor = t.contas?.cor ?? t.cartoes_credito?.cor
+                  const podeEditar = isAdmin || t.dono_id === userId
+                  return (
+                    <li key={t.id} className="flex items-center justify-between gap-3 px-4 py-3">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <span
+                          className="h-8 w-1 shrink-0 rounded-full"
+                          style={{ backgroundColor: cor ?? 'var(--borda)' }}
+                        />
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium text-texto">{t.descricao}</p>
+                          <p className="truncate text-xs text-texto-suave">
+                            {t.categorias?.nome ?? 'Sem categoria'}
+                            {t.subcategorias?.nome ? ` / ${t.subcategorias.nome}` : ''}
+                            {origem ? ` · ${origem}` : ''}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex shrink-0 items-center gap-3">
+                        <span
+                          className={`whitespace-nowrap text-sm font-semibold ${
+                            receita ? 'text-receita' : 'text-despesa'
+                          }`}
+                        >
+                          {receita ? '+' : '−'} {moeda(t.valor)}
+                        </span>
+                        {podeEditar && (
+                          <Link
+                            href={`/lancamentos?id=${t.id}`}
+                            className="text-xs font-medium text-primaria hover:underline"
+                          >
+                            Editar
+                          </Link>
+                        )}
+                      </div>
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          ))}
+        </div>
+      )}
+    </Pagina>
   )
 }

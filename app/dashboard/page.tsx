@@ -41,9 +41,9 @@ const CORES_CATEGORICAS = [
   '#e34948',
 ]
 const COR_OUTRAS = '#898781'
-const COR_RECEITA = '#0ca30c'
-const COR_DESPESA = '#e34948'
-const COR_TEAL = '#1baf7a'
+const COR_RECEITA = '#0e9f6e'
+const COR_DESPESA = '#dc4c4c'
+const COR_TEAL = '#159d76'
 const COR_MARINHO = '#1c3a52'
 
 const formatoMoeda = new Intl.NumberFormat('pt-BR', {

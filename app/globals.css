@@ -1,19 +1,81 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Superfícies */
+  --fundo: #f4f6f8;
+  --superficie: #ffffff;
+  --borda: #e4e8ec;
+
+  /* Texto */
+  --texto: #1a2430;
+  --texto-suave: #64748b;
+
+  /* Marca */
+  --primaria: #159d76;
+  --primaria-escura: #0f7d5d;
+  --marinho: #1c3a52;
+  --marinho-claro: #2a4d69;
+
+  /* Semânticas */
+  --receita: #0e9f6e;
+  --despesa: #dc4c4c;
+  --alerta: #d98324;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-fundo: var(--fundo);
+  --color-superficie: var(--superficie);
+  --color-borda: var(--borda);
+  --color-texto: var(--texto);
+  --color-texto-suave: var(--texto-suave);
+  --color-primaria: var(--primaria);
+  --color-primaria-escura: var(--primaria-escura);
+  --color-marinho: var(--marinho);
+  --color-marinho-claro: var(--marinho-claro);
+  --color-receita: var(--receita);
+  --color-despesa: var(--despesa);
+  --color-alerta: var(--alerta);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--fundo);
+  color: var(--texto);
+  font-family: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
+}
+
+/* Campos de formulário: contraste garantido em qualquer tema do sistema */
+input,
+select,
+textarea {
+  color: var(--texto);
+  background-color: var(--superficie);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #9aa5b1;
+}
+
+/* Utilitários reutilizados nas telas */
+@utility cartao {
+  background-color: var(--superficie);
+  border: 1px solid var(--borda);
+  border-radius: 0.75rem;
+  box-shadow: 0 1px 2px rgb(16 24 40 / 0.04);
+}
+
+@utility campo {
+  width: 100%;
+  border-radius: 0.5rem;
+  border: 1px solid var(--borda);
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  outline: none;
+}
+
+@utility campo-foco {
+  border-color: var(--primaria);
+  box-shadow: 0 0 0 3px rgb(21 157 118 / 0.12);
 }
