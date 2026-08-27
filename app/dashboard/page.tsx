@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Bar,
   BarChart,
@@ -15,15 +15,18 @@ import {
   YAxis,
 } from 'recharts'
 import { supabase } from '@/lib/supabaseClient'
+import { moeda, rotuloMesCurto } from '@/lib/formato'
+import { CabecalhoPagina, EstadoVazio, Pagina, classeInput } from '@/components/ui'
 
 type TransacaoResumo = {
   data: string
   valor: number
   tipo: string
   escopo: string
-  banco_cartao: string | null
   dono_id: string
   categorias: { nome: string } | null
+  contas: { nome: string } | null
+  cartoes_credito: { nome: string } | null
 }
 
 type Membro = { id: string; nome: string }
@@ -33,23 +36,23 @@ type Escopo = 'todos' | 'familiar' | 'pessoal'
 const CORES_CATEGORICAS = [
   '#2a78d6',
   '#eb6834',
-  '#1baf7a',
+  '#159d76',
   '#eda100',
   '#e87ba4',
-  '#008300',
-  '#4a3aa7',
-  '#e34948',
+  '#7c4dcc',
+  '#0e7490',
+  '#dc4c4c',
 ]
-const COR_OUTRAS = '#898781'
+const COR_OUTRAS = '#94a3b8'
 const COR_RECEITA = '#0e9f6e'
 const COR_DESPESA = '#dc4c4c'
-const COR_TEAL = '#159d76'
-const COR_MARINHO = '#1c3a52'
 
-const formatoMoeda = new Intl.NumberFormat('pt-BR', {
-  style: 'currency',
-  currency: 'BRL',
-})
+const ROTULO_PERIODO: Record<Periodo, string> = {
+  mes: 'Este mês',
+  '3m': '3 meses',
+  '6m': '6 meses',
+  ano: 'Este ano',
+}
 
 function chaveDoMes(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
@@ -75,10 +78,12 @@ function mesesDoPeriodo(periodo: Periodo): string[] {
   return chaves
 }
 
-function rotuloMes(chave: string): string {
-  const [ano, mes] = chave.split('-').map(Number)
-  const d = new Date(ano, mes - 1, 1)
-  return d.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }).replace('.', '')
+/** Valores curtos para os eixos, para não estourar a largura no celular */
+function moedaCompacta(valor: number): string {
+  const abs = Math.abs(valor)
+  if (abs >= 1_000_000) return `${(valor / 1_000_000).toFixed(1)}mi`
+  if (abs >= 1_000) return `${Math.round(valor / 1_000)}mil`
+  return String(Math.round(valor))
 }
 
 type ItemTooltip = {
@@ -99,18 +104,18 @@ function TooltipMoeda({
 }) {
   if (!active || !payload?.length) return null
   return (
-    <div className="rounded border border-gray-200 bg-white px-3 py-2 text-sm shadow-md">
-      {label && <p className="mb-1 font-medium text-gray-800">{label}</p>}
+    <div className="rounded-lg border border-borda bg-superficie px-3 py-2 text-sm shadow-lg">
+      {label && <p className="mb-1 font-medium text-texto">{label}</p>}
       {payload.map((item) => (
         <p key={item.name} style={{ color: item.color || item.payload?.fill }}>
-          {item.name}: {formatoMoeda.format(item.value ?? 0)}
+          {item.name}: {moeda(item.value ?? 0)}
         </p>
       ))}
     </div>
   )
 }
 
-function KpiCard({
+function CartaoKpi({
   titulo,
   valor,
   cor,
@@ -120,10 +125,37 @@ function KpiCard({
   cor: string
 }) {
   return (
-    <div className="rounded-lg p-4 shadow-sm" style={{ backgroundColor: cor }}>
-      <p className="text-xs font-medium uppercase tracking-wide text-white/80">{titulo}</p>
-      <p className="mt-1 text-2xl font-bold text-white">{valor}</p>
+    <div className="rounded-xl p-3 shadow-sm sm:p-4" style={{ backgroundColor: cor }}>
+      <p className="text-[11px] font-medium uppercase leading-tight tracking-wide text-white/80">
+        {titulo}
+      </p>
+      <p className="mt-1 text-lg font-bold leading-tight text-white sm:text-2xl">{valor}</p>
     </div>
+  )
+}
+
+function BlocoGrafico({
+  titulo,
+  vazio,
+  children,
+  className = '',
+}: {
+  titulo: string
+  vazio: boolean
+  children: React.ReactNode
+  className?: string
+}) {
+  return (
+    <section className={`cartao p-4 ${className}`}>
+      <h2 className="mb-3 text-sm font-semibold text-texto">{titulo}</h2>
+      {vazio ? (
+        <p className="py-10 text-center text-sm text-texto-suave">
+          Nenhum dado neste período.
+        </p>
+      ) : (
+        children
+      )}
+    </section>
   )
 }
 
@@ -142,21 +174,14 @@ function agruparDespesas(
     .map(([nome, valor]) => ({ nome, valor }))
     .sort((a, b) => b.valor - a.valor)
 
-  const principais = ordenado.slice(0, 7)
-  const restante = ordenado.slice(7).reduce((soma, c) => soma + c.valor, 0)
+  const principais = ordenado.slice(0, 6)
+  const restante = ordenado.slice(6).reduce((soma, c) => soma + c.valor, 0)
   if (restante > 0) principais.push({ nome: 'Outras', valor: restante })
 
   return principais.map((c, i) => ({
     ...c,
     cor: c.nome === 'Outras' ? COR_OUTRAS : CORES_CATEGORICAS[i % CORES_CATEGORICAS.length],
   }))
-}
-
-const ROTULO_PERIODO: Record<Periodo, string> = {
-  mes: 'Este mês',
-  '3m': 'Últimos 3 meses',
-  '6m': 'Últimos 6 meses',
-  ano: 'Este ano',
 }
 
 export default function DashboardPage() {
@@ -194,29 +219,32 @@ export default function DashboardPage() {
 
   const mesesChaves = useMemo(() => mesesDoPeriodo(periodo), [periodo])
 
-  useEffect(() => {
-    async function carregar() {
-      setCarregando(true)
-      const dataInicio = `${mesesChaves[0]}-01`
+  const carregar = useCallback(async () => {
+    const dataInicio = `${mesesChaves[0]}-01`
 
-      let query = supabase
-        .from('transacoes')
-        .select('data, valor, tipo, escopo, banco_cartao, dono_id, categorias(nome)')
-        .gte('data', dataInicio)
-        .order('data')
+    let query = supabase
+      .from('transacoes')
+      .select(
+        'data, valor, tipo, escopo, dono_id, categorias(nome), contas(nome), cartoes_credito(nome)'
+      )
+      .gte('data', dataInicio)
+      .order('data')
 
-      if (escopoFiltro !== 'todos') query = query.eq('escopo', escopoFiltro)
-      if (isAdmin && membroFiltro) query = query.eq('dono_id', membroFiltro)
+    if (escopoFiltro !== 'todos') query = query.eq('escopo', escopoFiltro)
+    if (isAdmin && membroFiltro) query = query.eq('dono_id', membroFiltro)
 
-      const { data, error } = await query
+    const { data, error } = await query
 
-      if (!error && data) {
-        setTransacoes(data as unknown as TransacaoResumo[])
-      }
-      setCarregando(false)
-    }
-    carregar()
+    if (!error && data) setTransacoes(data as unknown as TransacaoResumo[])
+    setCarregando(false)
   }, [mesesChaves, escopoFiltro, membroFiltro, isAdmin])
+
+  useEffect(() => {
+    // Busca de dados: o estado só muda depois do await da consulta, mas a regra
+    // não distingue esse caso de um setState realmente síncrono.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    carregar()
+  }, [carregar])
 
   const evolucaoMensal = useMemo(() => {
     const porMes = new Map(mesesChaves.map((chave) => [chave, { receitas: 0, despesas: 0 }]))
@@ -227,7 +255,7 @@ export default function DashboardPage() {
       else bucket.despesas += Number(t.valor)
     }
     return mesesChaves.map((chave) => ({
-      mes: rotuloMes(chave),
+      mes: rotuloMesCurto(chave),
       Receitas: porMes.get(chave)!.receitas,
       Despesas: porMes.get(chave)!.despesas,
     }))
@@ -238,8 +266,13 @@ export default function DashboardPage() {
     [transacoes]
   )
 
-  const gastosPorBanco = useMemo(
-    () => agruparDespesas(transacoes, (t) => t.banco_cartao ?? '', 'Não informado'),
+  const gastosPorOrigem = useMemo(
+    () =>
+      agruparDespesas(
+        transacoes,
+        (t) => t.contas?.nome ?? t.cartoes_credito?.nome ?? '',
+        'Não informado'
+      ),
     [transacoes]
   )
 
@@ -265,218 +298,192 @@ export default function DashboardPage() {
     .reduce((soma, t) => soma + Number(t.valor), 0)
   const saldo = totalReceitas - totalDespesas
 
-  const botaoClasse = (ativo: boolean) =>
-    `rounded px-3 py-1.5 text-sm ${
-      ativo ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 border border-gray-300'
+  const classeBotao = (ativo: boolean) =>
+    `shrink-0 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+      ativo
+        ? 'bg-primaria text-white'
+        : 'border border-borda bg-superficie text-texto-suave hover:bg-fundo'
     }`
 
+  const legendaRodape = {
+    fontSize: 11,
+    color: 'var(--texto-suave)',
+    paddingTop: 8,
+  } as const
+
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      <div className="mx-auto max-w-6xl">
-        <h1 className="mb-6 text-xl font-semibold text-gray-800">Dashboard</h1>
+    <Pagina>
+      <CabecalhoPagina titulo="Relatórios" />
 
-        <div className="mb-6 rounded-lg bg-white p-4 shadow-sm">
-          <p className="mb-3 text-sm font-medium text-gray-700">Filtros</p>
-          <div className="flex flex-wrap items-end gap-6">
-            <div>
-              <p className="mb-1 text-xs text-gray-500">Período</p>
-              <div className="flex gap-1">
-                {(Object.keys(ROTULO_PERIODO) as Periodo[]).map((p) => (
-                  <button
-                    key={p}
-                    onClick={() => setPeriodo(p)}
-                    className={botaoClasse(periodo === p)}
-                  >
-                    {ROTULO_PERIODO[p]}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <p className="mb-1 text-xs text-gray-500">Escopo</p>
-              <div className="flex gap-1">
-                <button
-                  onClick={() => setEscopoFiltro('todos')}
-                  className={botaoClasse(escopoFiltro === 'todos')}
-                >
-                  Todos
-                </button>
-                <button
-                  onClick={() => setEscopoFiltro('familiar')}
-                  className={botaoClasse(escopoFiltro === 'familiar')}
-                >
-                  Familiar
-                </button>
-                <button
-                  onClick={() => setEscopoFiltro('pessoal')}
-                  className={botaoClasse(escopoFiltro === 'pessoal')}
-                >
-                  Pessoal
-                </button>
-              </div>
-            </div>
-
-            {isAdmin && (
-              <div>
-                <p className="mb-1 text-xs text-gray-500">Membro</p>
-                <select
-                  value={membroFiltro}
-                  onChange={(e) => setMembroFiltro(e.target.value)}
-                  className="rounded border border-gray-300 px-3 py-1.5 text-sm text-gray-800"
-                >
-                  <option value="">Todos</option>
-                  {membros.map((m) => (
-                    <option key={m.id} value={m.id}>{m.nome}</option>
-                  ))}
-                </select>
-              </div>
-            )}
+      {/* Filtros — rolam na horizontal no celular em vez de quebrar */}
+      <div className="cartao mb-5 space-y-3 p-4">
+        <div>
+          <p className="mb-1.5 text-xs font-medium text-texto-suave">Período</p>
+          <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+            {(Object.keys(ROTULO_PERIODO) as Periodo[]).map((p) => (
+              <button key={p} onClick={() => setPeriodo(p)} className={classeBotao(periodo === p)}>
+                {ROTULO_PERIODO[p]}
+              </button>
+            ))}
           </div>
         </div>
 
-        {carregando && <p className="text-sm text-gray-500">Carregando...</p>}
-
-        {!carregando && (
-          <>
-            <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
-              <KpiCard titulo="Total de Receitas" valor={formatoMoeda.format(totalReceitas)} cor={COR_RECEITA} />
-              <KpiCard titulo="Total de Despesas" valor={formatoMoeda.format(totalDespesas)} cor={COR_DESPESA} />
-              <KpiCard titulo="Saldo" valor={formatoMoeda.format(saldo)} cor={COR_MARINHO} />
-              <KpiCard titulo="Lançamentos" valor={String(transacoes.length)} cor={COR_TEAL} />
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <p className="mb-1.5 text-xs font-medium text-texto-suave">Escopo</p>
+            <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+              {(['todos', 'familiar', 'pessoal'] as Escopo[]).map((e) => (
+                <button
+                  key={e}
+                  onClick={() => setEscopoFiltro(e)}
+                  className={classeBotao(escopoFiltro === e)}
+                >
+                  {e === 'todos' ? 'Todos' : e === 'familiar' ? 'Familiar' : 'Pessoal'}
+                </button>
+              ))}
             </div>
+          </div>
 
-            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-              <div className="rounded-lg bg-white p-4 shadow-sm">
-                <h2 className="mb-1 text-sm font-medium text-gray-700">
-                  Gastos por Categoria — {ROTULO_PERIODO[periodo]}
-                </h2>
-                {gastosPorCategoria.length === 0 ? (
-                  <p className="py-12 text-center text-sm text-gray-400">
-                    Nenhuma despesa neste período.
-                  </p>
-                ) : (
-                  <ResponsiveContainer width="100%" height={280}>
-                    <PieChart>
-                      <Pie
-                        data={gastosPorCategoria}
-                        dataKey="valor"
-                        nameKey="nome"
-                        innerRadius={55}
-                        outerRadius={95}
-                        paddingAngle={2}
-                      >
-                        {gastosPorCategoria.map((c) => (
-                          <Cell key={c.nome} fill={c.cor} stroke="#fcfcfb" strokeWidth={2} />
-                        ))}
-                      </Pie>
-                      <Tooltip content={<TooltipMoeda />} />
-                      <Legend
-                        layout="vertical"
-                        align="right"
-                        verticalAlign="middle"
-                        wrapperStyle={{ fontSize: 12, color: '#52514e' }}
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
-                )}
-              </div>
+          {isAdmin && (
+            <div>
+              <p className="mb-1.5 text-xs font-medium text-texto-suave">Membro</p>
+              <select
+                className={classeInput}
+                value={membroFiltro}
+                onChange={(e) => setMembroFiltro(e.target.value)}
+              >
+                <option value="">Todos</option>
+                {membros.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.nome}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+      </div>
 
-              <div className="rounded-lg bg-white p-4 shadow-sm">
-                <h2 className="mb-1 text-sm font-medium text-gray-700">
-                  Gastos por Banco/Cartão — {ROTULO_PERIODO[periodo]}
-                </h2>
-                {gastosPorBanco.length === 0 ? (
-                  <p className="py-12 text-center text-sm text-gray-400">
-                    Nenhuma despesa neste período.
-                  </p>
-                ) : (
-                  <ResponsiveContainer width="100%" height={280}>
-                    <PieChart>
-                      <Pie
-                        data={gastosPorBanco}
-                        dataKey="valor"
-                        nameKey="nome"
-                        innerRadius={55}
-                        outerRadius={95}
-                        paddingAngle={2}
-                      >
-                        {gastosPorBanco.map((c) => (
-                          <Cell key={c.nome} fill={c.cor} stroke="#fcfcfb" strokeWidth={2} />
-                        ))}
-                      </Pie>
-                      <Tooltip content={<TooltipMoeda />} />
-                      <Legend
-                        layout="vertical"
-                        align="right"
-                        verticalAlign="middle"
-                        wrapperStyle={{ fontSize: 12, color: '#52514e' }}
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
-                )}
-              </div>
+      {carregando && <p className="text-sm text-texto-suave">Carregando...</p>}
 
-              {escopoFiltro === 'todos' && (
-                <div className="rounded-lg bg-white p-4 shadow-sm">
-                  <h2 className="mb-1 text-sm font-medium text-gray-700">
-                    Familiar vs. Pessoal — {ROTULO_PERIODO[periodo]}
-                  </h2>
-                  {totalDespesas === 0 ? (
-                    <p className="py-12 text-center text-sm text-gray-400">
-                      Nenhuma despesa neste período.
-                    </p>
-                  ) : (
-                    <ResponsiveContainer width="100%" height={280}>
-                      <BarChart data={familiarVsPessoal} layout="vertical" margin={{ left: 16 }}>
-                        <CartesianGrid horizontal={false} stroke="#e1e0d9" />
-                        <XAxis
-                          type="number"
-                          tickFormatter={(v) => formatoMoeda.format(v)}
-                          tick={{ fontSize: 12, fill: '#898781' }}
-                        />
-                        <YAxis
-                          type="category"
-                          dataKey="escopo"
-                          tick={{ fontSize: 12, fill: '#52514e' }}
-                          width={70}
-                        />
-                        <Tooltip content={<TooltipMoeda />} cursor={{ fill: '#f9f9f7' }} />
-                        <Bar dataKey="valor" name="Gasto" radius={[0, 4, 4, 0]} barSize={32}>
-                          {familiarVsPessoal.map((f) => (
-                            <Cell key={f.escopo} fill={f.cor} />
-                          ))}
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
-                  )}
-                </div>
-              )}
+      {!carregando && transacoes.length === 0 && (
+        <EstadoVazio
+          titulo="Nenhum lançamento no período"
+          descricao="Escolha outro período nos filtros acima ou registre lançamentos."
+        />
+      )}
 
-              <div className={`rounded-lg bg-white p-4 shadow-sm ${escopoFiltro === 'todos' ? '' : 'lg:col-span-2'}`}>
-                <h2 className="mb-1 text-sm font-medium text-gray-700">
-                  Evolução Mensal — {ROTULO_PERIODO[periodo]}
-                </h2>
-                <ResponsiveContainer width="100%" height={280}>
-                  <BarChart data={evolucaoMensal}>
-                    <CartesianGrid vertical={false} stroke="#e1e0d9" />
-                    <XAxis dataKey="mes" tick={{ fontSize: 12, fill: '#898781' }} />
-                    <YAxis
-                      tickFormatter={(v) => formatoMoeda.format(v)}
-                      tick={{ fontSize: 12, fill: '#898781' }}
-                      width={80}
+      {!carregando && transacoes.length > 0 && (
+        <>
+          {/* Resumo */}
+          <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <CartaoKpi titulo="Receitas" valor={moeda(totalReceitas)} cor={COR_RECEITA} />
+            <CartaoKpi titulo="Despesas" valor={moeda(totalDespesas)} cor={COR_DESPESA} />
+            <CartaoKpi titulo="Saldo" valor={moeda(saldo)} cor="#1c3a52" />
+            <CartaoKpi titulo="Lançamentos" valor={String(transacoes.length)} cor="#159d76" />
+          </div>
+
+          {/* Gráficos */}
+          <div className="grid gap-5 lg:grid-cols-2">
+            <BlocoGrafico
+              titulo="Gastos por Categoria"
+              vazio={gastosPorCategoria.length === 0}
+            >
+              <ResponsiveContainer width="100%" height={260}>
+                <PieChart>
+                  <Pie
+                    data={gastosPorCategoria}
+                    dataKey="valor"
+                    nameKey="nome"
+                    innerRadius="45%"
+                    outerRadius="72%"
+                    paddingAngle={2}
+                  >
+                    {gastosPorCategoria.map((c) => (
+                      <Cell key={c.nome} fill={c.cor} stroke="var(--superficie)" strokeWidth={2} />
+                    ))}
+                  </Pie>
+                  <Tooltip content={<TooltipMoeda />} />
+                  <Legend verticalAlign="bottom" height={48} wrapperStyle={legendaRodape} />
+                </PieChart>
+              </ResponsiveContainer>
+            </BlocoGrafico>
+
+            <BlocoGrafico
+              titulo="Gastos por Conta / Cartão"
+              vazio={gastosPorOrigem.length === 0}
+            >
+              <ResponsiveContainer width="100%" height={260}>
+                <PieChart>
+                  <Pie
+                    data={gastosPorOrigem}
+                    dataKey="valor"
+                    nameKey="nome"
+                    innerRadius="45%"
+                    outerRadius="72%"
+                    paddingAngle={2}
+                  >
+                    {gastosPorOrigem.map((c) => (
+                      <Cell key={c.nome} fill={c.cor} stroke="var(--superficie)" strokeWidth={2} />
+                    ))}
+                  </Pie>
+                  <Tooltip content={<TooltipMoeda />} />
+                  <Legend verticalAlign="bottom" height={48} wrapperStyle={legendaRodape} />
+                </PieChart>
+              </ResponsiveContainer>
+            </BlocoGrafico>
+
+            {escopoFiltro === 'todos' && (
+              <BlocoGrafico titulo="Familiar vs. Pessoal" vazio={totalDespesas === 0}>
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={familiarVsPessoal} layout="vertical">
+                    <CartesianGrid horizontal={false} stroke="var(--borda)" />
+                    <XAxis
+                      type="number"
+                      tickFormatter={moedaCompacta}
+                      tick={{ fontSize: 11, fill: 'var(--texto-suave)' }}
                     />
-                    <Tooltip content={<TooltipMoeda />} cursor={{ fill: '#f9f9f7' }} />
-                    <Legend wrapperStyle={{ fontSize: 12, color: '#52514e' }} />
-                    <Bar dataKey="Receitas" fill={COR_RECEITA} radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="Despesas" fill={COR_DESPESA} radius={[4, 4, 0, 0]} />
+                    <YAxis
+                      type="category"
+                      dataKey="escopo"
+                      tick={{ fontSize: 11, fill: 'var(--texto-suave)' }}
+                      width={64}
+                    />
+                    <Tooltip content={<TooltipMoeda />} cursor={{ fill: 'var(--fundo)' }} />
+                    <Bar dataKey="valor" name="Gasto" radius={[0, 4, 4, 0]} barSize={28}>
+                      {familiarVsPessoal.map((f) => (
+                        <Cell key={f.escopo} fill={f.cor} />
+                      ))}
+                    </Bar>
                   </BarChart>
                 </ResponsiveContainer>
-              </div>
-            </div>
-          </>
-        )}
-      </div>
-    </div>
+              </BlocoGrafico>
+            )}
+
+            <BlocoGrafico
+              titulo="Evolução Mensal"
+              vazio={evolucaoMensal.length === 0}
+              className={escopoFiltro === 'todos' ? '' : 'lg:col-span-2'}
+            >
+              <ResponsiveContainer width="100%" height={260}>
+                <BarChart data={evolucaoMensal} margin={{ left: -12, right: 4 }}>
+                  <CartesianGrid vertical={false} stroke="var(--borda)" />
+                  <XAxis dataKey="mes" tick={{ fontSize: 11, fill: 'var(--texto-suave)' }} />
+                  <YAxis
+                    tickFormatter={moedaCompacta}
+                    tick={{ fontSize: 11, fill: 'var(--texto-suave)' }}
+                    width={52}
+                  />
+                  <Tooltip content={<TooltipMoeda />} cursor={{ fill: 'var(--fundo)' }} />
+                  <Legend wrapperStyle={legendaRodape} />
+                  <Bar dataKey="Receitas" fill={COR_RECEITA} radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="Despesas" fill={COR_DESPESA} radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </BlocoGrafico>
+          </div>
+        </>
+      )}
+    </Pagina>
   )
 }

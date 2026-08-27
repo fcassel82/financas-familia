@@ -44,28 +44,59 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const [menuAberto, setMenuAberto] = useState(false)
   const [nome, setNome] = useState('')
+  const [sessaoOk, setSessaoOk] = useState<boolean | null>(null)
+
+  const naTelaDeLogin = pathname === '/login'
 
   useEffect(() => {
-    async function carregarPerfil() {
-      const { data } = await supabase.auth.getUser()
-      if (!data.user) return
+    if (naTelaDeLogin) return
+
+    async function verificarSessao() {
+      const { data } = await supabase.auth.getSession()
+      if (!data.session) {
+        setSessaoOk(false)
+        router.replace('/login')
+        return
+      }
+      setSessaoOk(true)
+
       const { data: perfil } = await supabase
         .from('perfis')
         .select('nome')
-        .eq('id', data.user.id)
+        .eq('id', data.session.user.id)
         .single()
-      setNome(perfil?.nome ?? data.user.email ?? '')
+      setNome(perfil?.nome ?? data.session.user.email ?? '')
     }
-    carregarPerfil()
-  }, [])
+    verificarSessao()
+
+    // Sessão do Supabase expira em ~1h. Sem isto, o app continuaria renderizando
+    // telas vazias (R$ 0,00) em vez de pedir login de novo.
+    const { data: assinatura } = supabase.auth.onAuthStateChange((evento, sessao) => {
+      if (evento === 'SIGNED_OUT' || !sessao) {
+        setSessaoOk(false)
+        router.replace('/login')
+      }
+    })
+
+    return () => assinatura.subscription.unsubscribe()
+  }, [naTelaDeLogin, router])
 
   async function sair() {
     await supabase.auth.signOut()
-    router.push('/login')
+    router.replace('/login')
   }
 
-  if (pathname === '/login') {
+  if (naTelaDeLogin) {
     return <>{children}</>
+  }
+
+  // Evita piscar telas vazias enquanto a sessão é verificada
+  if (sessaoOk !== true) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-fundo">
+        <p className="text-sm text-texto-suave">Carregando...</p>
+      </div>
+    )
   }
 
   const ativo = (rota: string) => (rota === '/' ? pathname === '/' : pathname.startsWith(rota))
