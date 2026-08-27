@@ -35,8 +35,13 @@ const NAV_PRINCIPAL: ItemNav[] = [
   { rota: '/importar', rotulo: 'Importar', Icone: IconeImportar },
 ]
 
-const NAV_CADASTROS: ItemNav[] = [
+const NAV_ANALISE: ItemNav[] = [
+  { rota: '/previsao', rotulo: 'Previsão', Icone: IconeCofre },
+  { rota: '/extrato', rotulo: 'Extrato', Icone: IconeLista },
   { rota: '/transferencias', rotulo: 'Transferências', Icone: IconeSeta },
+]
+
+const NAV_CADASTROS: ItemNav[] = [
   { rota: '/contas', rotulo: 'Contas', Icone: IconeBanco },
   { rota: '/cartoes', rotulo: 'Cartões', Icone: IconeCartao },
   { rota: '/categorias', rotulo: 'Categorias', Icone: IconeEtiqueta },
@@ -131,6 +136,16 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           ))}
 
           <p className="px-3 pt-5 pb-1 text-xs font-medium uppercase tracking-wider text-white/40">
+            Análise
+          </p>
+          {NAV_ANALISE.map(({ rota, rotulo, Icone }) => (
+            <Link key={rota} href={rota} className={classeItemLateral(rota)}>
+              <Icone className="h-5 w-5 shrink-0" />
+              {rotulo}
+            </Link>
+          ))}
+
+          <p className="px-3 pt-5 pb-1 text-xs font-medium uppercase tracking-wider text-white/40">
             Cadastros
           </p>
           {NAV_CADASTROS.map(({ rota, rotulo, Icone }) => (
@@ -199,6 +214,20 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
             <nav className="flex-1 space-y-1 overflow-y-auto px-3">
               {NAV_PRINCIPAL.map(({ rota, rotulo, Icone }) => (
+                <Link
+                  key={rota}
+                  href={rota}
+                  onClick={() => setMenuAberto(false)}
+                  className={classeItemLateral(rota)}
+                >
+                  <Icone className="h-5 w-5 shrink-0" />
+                  {rotulo}
+                </Link>
+              ))}
+              <p className="px-3 pt-5 pb-1 text-xs font-medium uppercase tracking-wider text-white/40">
+                Análise
+              </p>
+              {NAV_ANALISE.map(({ rota, rotulo, Icone }) => (
                 <Link
                   key={rota}
                   href={rota}

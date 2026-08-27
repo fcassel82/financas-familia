@@ -387,6 +387,43 @@ export default function DashboardPage() {
             <CartaoKpi titulo="Lançamentos" valor={String(transacoes.length)} cor="#159d76" />
           </div>
 
+          {/* Centros de custo: onde o dinheiro mais some */}
+          <section className="cartao mb-5 p-4">
+            <h2 className="mb-1 text-sm font-semibold text-texto">Centros de Custo</h2>
+            <p className="mb-4 text-xs text-texto-suave">
+              Categorias que concentram os maiores gastos no período.
+            </p>
+
+            {gastosPorCategoria.length === 0 ? (
+              <p className="py-6 text-center text-sm text-texto-suave">
+                Nenhuma despesa neste período.
+              </p>
+            ) : (
+              <ul className="space-y-3">
+                {gastosPorCategoria.map((c) => {
+                  const fatia = totalDespesas > 0 ? (c.valor / totalDespesas) * 100 : 0
+                  return (
+                    <li key={c.nome}>
+                      <div className="mb-1 flex items-baseline justify-between gap-3 text-sm">
+                        <span className="min-w-0 truncate text-texto">{c.nome}</span>
+                        <span className="flex shrink-0 items-baseline gap-2">
+                          <span className="text-xs text-texto-suave">{fatia.toFixed(1)}%</span>
+                          <span className="font-semibold text-texto">{moeda(c.valor)}</span>
+                        </span>
+                      </div>
+                      <div className="h-2 overflow-hidden rounded-full bg-fundo">
+                        <div
+                          className="h-full rounded-full"
+                          style={{ width: `${fatia}%`, backgroundColor: c.cor }}
+                        />
+                      </div>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </section>
+
           {/* Gráficos */}
           <div className="grid gap-5 lg:grid-cols-2">
             <BlocoGrafico
