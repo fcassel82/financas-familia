@@ -5,15 +5,17 @@ import Papa from 'papaparse'
 import readXlsxFile from 'read-excel-file/browser'
 import { supabase } from '@/lib/supabaseClient'
 import { parseData, parseValor } from '@/lib/parseExtrato'
+import { decodificarOfx, parsearOfx, type LancamentoOfx } from '@/lib/parseOfx'
 
 type Categoria = { id: string; nome: string; tipo: string }
 type Subcategoria = { id: string; categoria_id: string; nome: string }
-type Formato = 'csv' | 'excel' | 'pdf'
+type Formato = 'csv' | 'excel' | 'pdf' | 'ofx'
 
 type LinhaImportada = {
   data: string
   descricao: string
   valor: number
+  tipo: string
   categoriaId: string
   subcategoriaId: string
   escopo: string
@@ -39,6 +41,7 @@ export default function ImportarPage() {
   const [linhasBrutas, setLinhasBrutas] = useState<Record<string, string>[]>([])
   const [colunas, setColunas] = useState<string[]>([])
   const [linhasPdf, setLinhasPdf] = useState<{ data: string; descricao: string; valor: number }[]>([])
+  const [linhasOfx, setLinhasOfx] = useState<LancamentoOfx[]>([])
   const [processandoArquivo, setProcessandoArquivo] = useState(false)
   const [arquivoPdf, setArquivoPdf] = useState<File | null>(null)
   const [pdfPrecisaSenha, setPdfPrecisaSenha] = useState(false)
@@ -125,7 +128,27 @@ export default function ImportarPage() {
       return
     }
 
-    setMensagem('Formato não suportado. Envie um arquivo CSV, Excel (.xlsx/.xls) ou PDF.')
+    if (nome.endsWith('.ofx')) {
+      setFormato('ofx')
+      setProcessandoArquivo(true)
+      try {
+        const buffer = await arquivo.arrayBuffer()
+        const detectadas = parsearOfx(decodificarOfx(buffer))
+        if (detectadas.length === 0) {
+          setMensagem('Nenhum lançamento encontrado neste OFX. Confira se o arquivo é um extrato.')
+        } else {
+          setLinhasOfx(detectadas)
+          setEtapa('mapear')
+        }
+      } catch (err) {
+        console.error('Falha ao ler OFX:', err)
+        setMensagem('Não foi possível ler este arquivo OFX.')
+      }
+      setProcessandoArquivo(false)
+      return
+    }
+
+    setMensagem('Formato não suportado. Envie um arquivo CSV, Excel (.xlsx/.xls), PDF ou OFX.')
   }
 
   async function enviarPdf(arquivo: File, senha: string) {
@@ -169,11 +192,24 @@ export default function ImportarPage() {
   function processarMapeamento() {
     let processadas: LinhaImportada[]
 
-    if (formato === 'pdf') {
+    if (formato === 'ofx') {
+      // O OFX traz receitas e despesas no mesmo arquivo: o sinal do valor decide
+      processadas = linhasOfx.map((l) => ({
+        data: l.data,
+        descricao: l.descricao,
+        valor: l.valor,
+        tipo: l.tipo,
+        categoriaId: '',
+        subcategoriaId: '',
+        escopo: escopoBatch,
+        incluir: true,
+      }))
+    } else if (formato === 'pdf') {
       processadas = linhasPdf.map((l) => ({
         data: l.data,
         descricao: l.descricao,
         valor: l.valor,
+        tipo: tipoBatch,
         categoriaId: '',
         subcategoriaId: '',
         escopo: escopoBatch,
@@ -184,6 +220,7 @@ export default function ImportarPage() {
         data: parseData(linha[colData]),
         descricao: linha[colDescricao],
         valor: Math.abs(parseValor(linha[colValor])),
+        tipo: tipoBatch,
         categoriaId: '',
         subcategoriaId: '',
         escopo: escopoBatch,
@@ -215,6 +252,11 @@ export default function ImportarPage() {
         if (i !== index) return l
         const atualizada = { ...l, [campo]: valor }
         if (campo === 'categoriaId') atualizada.subcategoriaId = ''
+        // Mudar o tipo invalida a categoria escolhida, que é de receita OU despesa
+        if (campo === 'tipo') {
+          atualizada.categoriaId = ''
+          atualizada.subcategoriaId = ''
+        }
         return atualizada
       })
     )
@@ -228,14 +270,14 @@ export default function ImportarPage() {
     const userId = userData.user?.id
 
     const linhasParaSalvar = linhas
-      .filter((l) => l.incluir && l.categoriaId)
+      .filter((l) => l.incluir)
       .map((l) => ({
         data: l.data,
         descricao: l.descricao,
-        categoria_id: l.categoriaId,
+        categoria_id: l.categoriaId || null,
         subcategoria_id: l.subcategoriaId || null,
         valor: l.valor,
-        tipo: tipoBatch,
+        tipo: l.tipo,
         escopo: l.escopo,
         banco_cartao: bancoCartao || null,
         dono_id: userId,
@@ -243,7 +285,7 @@ export default function ImportarPage() {
       }))
 
     if (linhasParaSalvar.length === 0) {
-      setMensagem('Nenhuma linha marcada para importar (confira as categorias).')
+      setMensagem('Nenhuma linha marcada para importar.')
       setSalvando(false)
       return
     }
@@ -262,17 +304,21 @@ export default function ImportarPage() {
     setLinhas([])
     setLinhasBrutas([])
     setLinhasPdf([])
+    setLinhasOfx([])
   }
 
   const categoriasFiltradas = categorias.filter((c) => c.tipo === tipoBatch)
+  const categoriasDoTipo = (tipoLinha: string) => categorias.filter((c) => c.tipo === tipoLinha)
   const subcategoriasEmMassaFiltradas = subcategorias.filter(
     (s) => s.categoria_id === categoriaEmMassa
   )
 
   const podeContinuarMapeamento =
-    formato === 'pdf'
-      ? linhasPdf.length > 0
-      : !!colData && !!colDescricao && !!colValor
+    formato === 'ofx'
+      ? linhasOfx.length > 0
+      : formato === 'pdf'
+        ? linhasPdf.length > 0
+        : !!colData && !!colDescricao && !!colValor
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
@@ -282,11 +328,11 @@ export default function ImportarPage() {
         {etapa === 'upload' && (
           <div className="rounded-lg bg-white p-6 shadow-sm">
             <label className="mb-2 block text-sm text-gray-600">
-              Selecione o arquivo do extrato (CSV, Excel ou PDF)
+              Selecione o arquivo do extrato (CSV, Excel, PDF ou OFX)
             </label>
             <input
               type="file"
-              accept=".csv,.xlsx,.xls,.pdf"
+              accept=".csv,.xlsx,.xls,.pdf,.ofx"
               onChange={handleArquivo}
               disabled={processandoArquivo}
             />
@@ -320,7 +366,12 @@ export default function ImportarPage() {
 
         {etapa === 'mapear' && (
           <div className="rounded-lg bg-white p-6 shadow-sm">
-            {formato === 'pdf' ? (
+            {formato === 'ofx' ? (
+              <p className="mb-4 text-sm text-gray-600">
+                Encontramos {linhasOfx.length} lançamentos neste OFX. O arquivo já indica o que é
+                entrada e o que é saída, então não é preciso mapear colunas.
+              </p>
+            ) : formato === 'pdf' ? (
               <p className="mb-4 text-sm text-gray-600">
                 Detectamos {linhasPdf.length} possíveis lançamentos neste PDF. A leitura de PDF é
                 aproximada — revise com atenção os valores e descrições na próxima etapa antes de
@@ -333,7 +384,7 @@ export default function ImportarPage() {
               </p>
             )}
 
-            {formato !== 'pdf' && (
+            {formato !== 'pdf' && formato !== 'ofx' && (
               <>
                 <label className="mb-1 block text-sm text-gray-600">Coluna de Data</label>
                 <select
@@ -382,15 +433,19 @@ export default function ImportarPage() {
               className="mb-4 w-full rounded border border-gray-300 px-3 py-2"
             />
 
-            <label className="mb-1 block text-sm text-gray-600">Tipo (todas as linhas)</label>
-            <select
-              value={tipoBatch}
-              onChange={(e) => setTipoBatch(e.target.value)}
-              className="mb-4 w-full rounded border border-gray-300 px-3 py-2"
-            >
-              <option value="despesa">Despesa</option>
-              <option value="receita">Receita</option>
-            </select>
+            {formato !== 'ofx' && (
+              <>
+                <label className="mb-1 block text-sm text-gray-600">Tipo (todas as linhas)</label>
+                <select
+                  value={tipoBatch}
+                  onChange={(e) => setTipoBatch(e.target.value)}
+                  className="mb-4 w-full rounded border border-gray-300 px-3 py-2"
+                >
+                  <option value="despesa">Despesa</option>
+                  <option value="receita">Receita</option>
+                </select>
+              </>
+            )}
 
             <label className="mb-1 block text-sm text-gray-600">Escopo padrão</label>
             <select
@@ -466,6 +521,7 @@ export default function ImportarPage() {
                     <th className="p-2 text-left">Data</th>
                     <th className="p-2 text-left">Descrição</th>
                     <th className="p-2 text-left">Valor</th>
+                    <th className="p-2 text-left">Tipo</th>
                     <th className="p-2 text-left">Categoria</th>
                     <th className="p-2 text-left">Subcategoria</th>
                     <th className="p-2 text-left">Escopo</th>
@@ -510,12 +566,24 @@ export default function ImportarPage() {
                       </td>
                       <td className="p-2">
                         <select
+                          value={l.tipo}
+                          onChange={(e) => atualizarLinha(i, 'tipo', e.target.value)}
+                          className={`rounded border border-gray-300 px-2 py-1 font-medium ${
+                            l.tipo === 'receita' ? 'text-receita' : 'text-despesa'
+                          }`}
+                        >
+                          <option value="despesa">Despesa</option>
+                          <option value="receita">Receita</option>
+                        </select>
+                      </td>
+                      <td className="p-2">
+                        <select
                           value={l.categoriaId}
                           onChange={(e) => atualizarLinha(i, 'categoriaId', e.target.value)}
                           className="rounded border border-gray-300 px-2 py-1"
                         >
-                          <option value="">Selecione...</option>
-                          {categoriasFiltradas.map((c) => (
+                          <option value="">Sem categoria</option>
+                          {categoriasDoTipo(l.tipo).map((c) => (
                             <option key={c.id} value={c.id}>{c.nome}</option>
                           ))}
                         </select>
