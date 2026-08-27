@@ -104,6 +104,125 @@ const FORM_MANUTENCAO = {
   proximo_odometro: '',
 }
 
+type FormVeiculo = typeof FORM_VEICULO
+
+function ModalVeiculo({
+  aberto,
+  editando,
+  form,
+  onChangeForm,
+  mensagem,
+  salvando,
+  onSubmit,
+  onFechar,
+}: {
+  aberto: boolean
+  editando: boolean
+  form: FormVeiculo
+  onChangeForm: (form: FormVeiculo) => void
+  mensagem: string
+  salvando: boolean
+  onSubmit: (e: React.FormEvent) => void
+  onFechar: () => void
+}) {
+  return (
+    <Modal aberto={aberto} titulo={editando ? 'Editar veículo' : 'Novo veículo'} onFechar={onFechar}>
+      <form onSubmit={onSubmit} className="space-y-4">
+        <Campo rotulo="Nome / apelido">
+          <input
+            className={classeInput}
+            value={form.nome}
+            onChange={(e) => onChangeForm({ ...form, nome: e.target.value })}
+            placeholder="Ex: Corolla da família"
+            required
+          />
+        </Campo>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Campo rotulo="Marca">
+            <input
+              className={classeInput}
+              value={form.marca}
+              onChange={(e) => onChangeForm({ ...form, marca: e.target.value })}
+              placeholder="Ex: Toyota"
+            />
+          </Campo>
+          <Campo rotulo="Modelo">
+            <input
+              className={classeInput}
+              value={form.modelo}
+              onChange={(e) => onChangeForm({ ...form, modelo: e.target.value })}
+              placeholder="Ex: Corolla XEi"
+            />
+          </Campo>
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-3">
+          <Campo rotulo="Placa">
+            <input
+              className={classeInput}
+              value={form.placa}
+              onChange={(e) => onChangeForm({ ...form, placa: e.target.value.toUpperCase() })}
+              placeholder="ABC1D23"
+            />
+          </Campo>
+          <Campo rotulo="Ano">
+            <input
+              type="number"
+              className={classeInput}
+              value={form.ano}
+              onChange={(e) => onChangeForm({ ...form, ano: e.target.value })}
+              placeholder="2020"
+            />
+          </Campo>
+          <Campo rotulo="Combustível">
+            <select
+              className={classeInput}
+              value={form.combustivel}
+              onChange={(e) => onChangeForm({ ...form, combustivel: e.target.value })}
+            >
+              <option value="flex">Flex</option>
+              <option value="gasolina">Gasolina</option>
+              <option value="etanol">Etanol</option>
+              <option value="diesel">Diesel</option>
+              <option value="gnv">GNV</option>
+              <option value="eletrico">Elétrico</option>
+            </select>
+          </Campo>
+        </div>
+
+        <Campo rotulo="Cor no app">
+          <div className="flex flex-wrap gap-2">
+            {CORES.map((cor) => (
+              <button
+                key={cor}
+                type="button"
+                aria-label={`Cor ${cor}`}
+                onClick={() => onChangeForm({ ...form, cor })}
+                className={`h-8 w-8 rounded-full transition-transform ${
+                  form.cor === cor ? 'scale-110 ring-2 ring-texto ring-offset-2' : ''
+                }`}
+                style={{ backgroundColor: cor }}
+              />
+            ))}
+          </div>
+        </Campo>
+
+        <Mensagem texto={mensagem} />
+
+        <div className="flex justify-end gap-2 pt-2">
+          <BotaoSecundario type="button" onClick={onFechar}>
+            Cancelar
+          </BotaoSecundario>
+          <BotaoPrimario type="submit" disabled={salvando}>
+            {salvando ? 'Salvando...' : 'Salvar'}
+          </BotaoPrimario>
+        </div>
+      </form>
+    </Modal>
+  )
+}
+
 export default function VeiculosPage() {
   const [veiculos, setVeiculos] = useState<Veiculo[]>([])
   const [veiculoId, setVeiculoId] = useState('')
@@ -177,6 +296,9 @@ export default function VeiculosPage() {
   }, [veiculoId])
 
   useEffect(() => {
+    // Busca de dados: o estado só muda depois do await da consulta, mas a regra
+    // não distingue esse caso de um setState realmente síncrono.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     carregar()
   }, [carregar])
 
@@ -477,114 +599,17 @@ export default function VeiculosPage() {
             </BotaoPrimario>
           }
         />
-        <ModalVeiculo />
+        <ModalVeiculo
+          aberto={modalVeiculo}
+          editando={!!editandoVeiculo}
+          form={formVeiculo}
+          onChangeForm={setFormVeiculo}
+          mensagem={mensagem}
+          salvando={salvando}
+          onSubmit={salvarVeiculo}
+          onFechar={() => setModalVeiculo(false)}
+        />
       </Pagina>
-    )
-  }
-
-  // Definido aqui para reaproveitar o mesmo modal no estado vazio e na tela cheia
-  function ModalVeiculo() {
-    return (
-      <Modal
-        aberto={modalVeiculo}
-        titulo={editandoVeiculo ? 'Editar veículo' : 'Novo veículo'}
-        onFechar={() => setModalVeiculo(false)}
-      >
-        <form onSubmit={salvarVeiculo} className="space-y-4">
-          <Campo rotulo="Nome / apelido">
-            <input
-              className={classeInput}
-              value={formVeiculo.nome}
-              onChange={(e) => setFormVeiculo({ ...formVeiculo, nome: e.target.value })}
-              placeholder="Ex: Corolla da família"
-              required
-            />
-          </Campo>
-
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Campo rotulo="Marca">
-              <input
-                className={classeInput}
-                value={formVeiculo.marca}
-                onChange={(e) => setFormVeiculo({ ...formVeiculo, marca: e.target.value })}
-                placeholder="Ex: Toyota"
-              />
-            </Campo>
-            <Campo rotulo="Modelo">
-              <input
-                className={classeInput}
-                value={formVeiculo.modelo}
-                onChange={(e) => setFormVeiculo({ ...formVeiculo, modelo: e.target.value })}
-                placeholder="Ex: Corolla XEi"
-              />
-            </Campo>
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-3">
-            <Campo rotulo="Placa">
-              <input
-                className={classeInput}
-                value={formVeiculo.placa}
-                onChange={(e) =>
-                  setFormVeiculo({ ...formVeiculo, placa: e.target.value.toUpperCase() })
-                }
-                placeholder="ABC1D23"
-              />
-            </Campo>
-            <Campo rotulo="Ano">
-              <input
-                type="number"
-                className={classeInput}
-                value={formVeiculo.ano}
-                onChange={(e) => setFormVeiculo({ ...formVeiculo, ano: e.target.value })}
-                placeholder="2020"
-              />
-            </Campo>
-            <Campo rotulo="Combustível">
-              <select
-                className={classeInput}
-                value={formVeiculo.combustivel}
-                onChange={(e) => setFormVeiculo({ ...formVeiculo, combustivel: e.target.value })}
-              >
-                <option value="flex">Flex</option>
-                <option value="gasolina">Gasolina</option>
-                <option value="etanol">Etanol</option>
-                <option value="diesel">Diesel</option>
-                <option value="gnv">GNV</option>
-                <option value="eletrico">Elétrico</option>
-              </select>
-            </Campo>
-          </div>
-
-          <Campo rotulo="Cor no app">
-            <div className="flex flex-wrap gap-2">
-              {CORES.map((cor) => (
-                <button
-                  key={cor}
-                  type="button"
-                  aria-label={`Cor ${cor}`}
-                  onClick={() => setFormVeiculo({ ...formVeiculo, cor })}
-                  className={`h-8 w-8 rounded-full transition-transform ${
-                    formVeiculo.cor === cor ? 'scale-110 ring-2 ring-texto ring-offset-2' : ''
-                  }`}
-                  style={{ backgroundColor: cor }}
-                />
-              ))}
-            </div>
-          </Campo>
-
-          <Mensagem texto={mensagem} />
-
-          <div className="flex justify-end gap-2 pt-2">
-            <BotaoSecundario type="button" onClick={() => setModalVeiculo(false)}>
-              Cancelar
-            </BotaoSecundario>
-            <BotaoPrimario type="submit" disabled={salvando}>
-              {salvando ? 'Salvando...' : 'Salvar'}
-            </BotaoPrimario>
-          </div>
-        </form>
-      </Modal>
     )
   }
 
@@ -887,7 +912,16 @@ export default function VeiculosPage() {
         </>
       )}
 
-      <ModalVeiculo />
+      <ModalVeiculo
+          aberto={modalVeiculo}
+          editando={!!editandoVeiculo}
+          form={formVeiculo}
+          onChangeForm={setFormVeiculo}
+          mensagem={mensagem}
+          salvando={salvando}
+          onSubmit={salvarVeiculo}
+          onFechar={() => setModalVeiculo(false)}
+        />
 
       {/* Modal: abastecimento */}
       <Modal
