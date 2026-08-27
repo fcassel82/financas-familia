@@ -80,6 +80,7 @@ export default function InicioPage() {
             .from('transacoes')
             .select('id, data, descricao, valor, tipo, categorias(nome), contas(nome, cor)')
             .eq('status', 'pago')
+            .is('transferencia_id', null)
             .gte('data', inicio)
             .lte('data', fim)
             .order('data', { ascending: false }),

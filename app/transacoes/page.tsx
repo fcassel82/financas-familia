@@ -102,6 +102,8 @@ export default function TransacoesPage() {
       .eq('escopo', aba)
       // Contas a pagar em aberto têm tela própria (/contas-pagar); aqui só o efetivado
       .eq('status', 'pago')
+      // Transferências entre contas próprias têm tela própria e não são receita/despesa
+      .is('transferencia_id', null)
       .gte('data', inicio)
       .lte('data', fim)
       .order('data', { ascending: false })

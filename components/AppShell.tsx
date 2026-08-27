@@ -18,6 +18,7 @@ import {
   IconeMais,
   IconeMenu,
   IconeSair,
+  IconeSeta,
 } from './Icones'
 
 type ItemNav = {
@@ -35,6 +36,7 @@ const NAV_PRINCIPAL: ItemNav[] = [
 ]
 
 const NAV_CADASTROS: ItemNav[] = [
+  { rota: '/transferencias', rotulo: 'Transferências', Icone: IconeSeta },
   { rota: '/contas', rotulo: 'Contas', Icone: IconeBanco },
   { rota: '/cartoes', rotulo: 'Cartões', Icone: IconeCartao },
   { rota: '/categorias', rotulo: 'Categorias', Icone: IconeEtiqueta },

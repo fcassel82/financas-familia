@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
-import { hojeISO } from '@/lib/formato'
+import { hojeISO, moeda, somarMeses } from '@/lib/formato'
 import { IconeLixeira } from '@/components/Icones'
 import {
   BotaoPrimario,
@@ -19,6 +19,45 @@ type Categoria = { id: string; nome: string; tipo: string }
 type Subcategoria = { id: string; categoria_id: string; nome: string }
 type Conta = { id: string; nome: string }
 type Cartao = { id: string; nome: string }
+
+type RegistroBase = {
+  data: string
+  descricao: string
+  categoria_id: string | null
+  subcategoria_id: string | null
+  valor: number
+  tipo: string
+  escopo: string
+  conta_id: string | null
+  cartao_id: string | null
+}
+
+/**
+ * Divide um valor em N parcelas mensais. Os centavos que sobram da divisão vão
+ * para a última parcela, para que a soma bata exatamente com o valor original
+ * (ex.: 100 em 3x = 33,33 + 33,33 + 33,34).
+ */
+function montarParcelas(base: RegistroBase, quantidade: number, userId: string | undefined) {
+  const totalCentavos = Math.round(base.valor * 100)
+  const porParcela = Math.floor(totalCentavos / quantidade)
+  const sobra = totalCentavos - porParcela * quantidade
+  const recorrenciaId = crypto.randomUUID()
+
+  return Array.from({ length: quantidade }, (_, i) => {
+    const centavos = i === quantidade - 1 ? porParcela + sobra : porParcela
+    return {
+      ...base,
+      data: somarMeses(base.data, i),
+      descricao: `${base.descricao} (${i + 1}/${quantidade})`,
+      valor: centavos / 100,
+      recorrencia_id: recorrenciaId,
+      parcela_numero: i + 1,
+      parcela_total: quantidade,
+      dono_id: userId,
+      lancado_por: userId,
+    }
+  })
+}
 
 function FormularioLancamento() {
   const searchParams = useSearchParams()
@@ -40,6 +79,8 @@ function FormularioLancamento() {
   const [contaId, setContaId] = useState('')
   const [cartaoId, setCartaoId] = useState('')
   const [escopo, setEscopo] = useState('pessoal')
+  const [parcelar, setParcelar] = useState(false)
+  const [parcelas, setParcelas] = useState('2')
 
   const [mensagem, setMensagem] = useState('')
   const [salvando, setSalvando] = useState(false)
@@ -124,9 +165,14 @@ function FormularioLancamento() {
     const { data: userData } = await supabase.auth.getUser()
     const userId = userData.user?.id
 
-    const { error } = await supabase
-      .from('transacoes')
-      .insert({ ...registro, dono_id: userId, lancado_por: userId })
+    const quantidadeParcelas = parcelar ? Math.max(2, parseInt(parcelas || '2', 10)) : 1
+
+    const registros =
+      quantidadeParcelas === 1
+        ? [{ ...registro, dono_id: userId, lancado_por: userId }]
+        : montarParcelas(registro, quantidadeParcelas, userId)
+
+    const { error } = await supabase.from('transacoes').insert(registros)
 
     setSalvando(false)
     if (error) {
@@ -346,6 +392,43 @@ function FormularioLancamento() {
             <option value="pessoal">Pessoal (só eu vejo)</option>
           </select>
         </Campo>
+
+        {/* Parcelamento só faz sentido ao criar; ao editar, mexe-se numa parcela só */}
+        {!idEdicao && (
+          <div className="rounded-lg border border-borda p-3">
+            <label className="flex items-center gap-2 text-sm text-texto">
+              <input
+                type="checkbox"
+                checked={parcelar}
+                onChange={(e) => setParcelar(e.target.checked)}
+              />
+              Parcelar em várias vezes
+            </label>
+
+            {parcelar && (
+              <div className="mt-3">
+                <Campo rotulo="Número de parcelas">
+                  <input
+                    type="number"
+                    min="2"
+                    max="120"
+                    className={classeInput}
+                    value={parcelas}
+                    onChange={(e) => setParcelas(e.target.value)}
+                  />
+                </Campo>
+                {parseFloat(valor) > 0 && parseInt(parcelas || '0', 10) >= 2 && (
+                  <p className="mt-1.5 text-xs text-texto-suave">
+                    {parcelas}x de aproximadamente{' '}
+                    {moeda(parseFloat(valor) / parseInt(parcelas, 10))}, uma por mês. O valor total
+                    de {moeda(parseFloat(valor))} é mantido — os centavos da divisão vão para a
+                    última parcela.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         <Mensagem texto={mensagem} />
 

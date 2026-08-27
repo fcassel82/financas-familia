@@ -229,6 +229,8 @@ export default function DashboardPage() {
       )
       // Só o que já foi efetivado: contas a pagar em aberto não são gasto realizado
       .eq('status', 'pago')
+      // Transferência entre contas próprias não é receita nem despesa
+      .is('transferencia_id', null)
       .gte('data', dataInicio)
       .order('data')
 
