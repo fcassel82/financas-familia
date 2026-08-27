@@ -58,7 +58,7 @@ export default function CartoesPage() {
     const [{ data: cartoesData }, { data: contasData }, { data: movimentos }] = await Promise.all([
       supabase.from('cartoes_credito').select('*').order('nome'),
       supabase.from('contas').select('id, nome').order('nome'),
-      supabase.from('transacoes').select('cartao_id, valor, tipo'),
+      supabase.from('transacoes').select('cartao_id, valor, tipo').eq('status', 'pago'),
     ])
 
     setCartoes((cartoesData ?? []) as Cartao[])

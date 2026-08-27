@@ -100,6 +100,8 @@ export default function TransacoesPage() {
         'id, data, descricao, valor, tipo, escopo, dono_id, categorias(nome), subcategorias(nome), contas(nome, cor), cartoes_credito(nome, cor)'
       )
       .eq('escopo', aba)
+      // Contas a pagar em aberto têm tela própria (/contas-pagar); aqui só o efetivado
+      .eq('status', 'pago')
       .gte('data', inicio)
       .lte('data', fim)
       .order('data', { ascending: false })

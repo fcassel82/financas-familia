@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
 import {
+  IconeAlerta,
   IconeBanco,
   IconeCartao,
   IconeCofre,
@@ -28,6 +29,7 @@ type ItemNav = {
 const NAV_PRINCIPAL: ItemNav[] = [
   { rota: '/', rotulo: 'Início', Icone: IconeInicio },
   { rota: '/transacoes', rotulo: 'Lançamentos', Icone: IconeLista },
+  { rota: '/contas-pagar', rotulo: 'A Pagar', Icone: IconeAlerta },
   { rota: '/dashboard', rotulo: 'Relatórios', Icone: IconeGrafico },
   { rota: '/importar', rotulo: 'Importar', Icone: IconeImportar },
 ]

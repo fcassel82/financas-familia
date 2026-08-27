@@ -4,9 +4,27 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
-import { chaveMes, dataBR, hojeISO, limitesDoMes, moeda, rotuloMesLongo } from '@/lib/formato'
-import { IconeBanco, IconeGrafico, IconeMais } from '@/components/Icones'
+import {
+  chaveMes,
+  dataBR,
+  hojeISO,
+  limitesDoMes,
+  moeda,
+  rotuloMesLongo,
+  situacaoVencimento,
+  somarDias,
+  textoVencimento,
+} from '@/lib/formato'
+import { IconeAlerta, IconeBanco, IconeGrafico, IconeMais } from '@/components/Icones'
 import { EstadoVazio, Pagina } from '@/components/ui'
+
+type Pendencia = {
+  id: string
+  descricao: string
+  valor: number
+  tipo: string
+  data_vencimento: string
+}
 
 type Movimento = {
   id: string
@@ -27,6 +45,7 @@ export default function InicioPage() {
   const [contas, setContas] = useState<Conta[]>([])
   const [saldos, setSaldos] = useState<Record<string, number>>({})
   const [doMes, setDoMes] = useState<Movimento[]>([])
+  const [lembretes, setLembretes] = useState<Pendencia[]>([])
 
   const hoje = hojeISO()
   const mesAtual = chaveMes(new Date())
@@ -47,17 +66,30 @@ export default function InicioPage() {
       setNome(perfil?.nome ?? '')
 
       const { inicio, fim } = limitesDoMes(mesAtual)
+      const limiteLembrete = somarDias(hojeISO(), 7)
 
-      const [{ data: contasData }, { data: todosMovimentos }, { data: movimentosMes }] =
-        await Promise.all([
+      const [
+        { data: contasData },
+        { data: todosMovimentos },
+        { data: movimentosMes },
+        { data: pendencias },
+      ] = await Promise.all([
           supabase.from('contas').select('id, nome, cor, saldo_inicial').order('nome'),
-          supabase.from('transacoes').select('conta_id, valor, tipo'),
+          supabase.from('transacoes').select('conta_id, valor, tipo').eq('status', 'pago'),
           supabase
             .from('transacoes')
             .select('id, data, descricao, valor, tipo, categorias(nome), contas(nome, cor)')
+            .eq('status', 'pago')
             .gte('data', inicio)
             .lte('data', fim)
             .order('data', { ascending: false }),
+          // Lembretes: contas em aberto que vencem até 7 dias à frente
+          supabase
+            .from('transacoes')
+            .select('id, descricao, valor, tipo, data_vencimento')
+            .eq('status', 'pendente')
+            .lte('data_vencimento', limiteLembrete)
+            .order('data_vencimento'),
         ])
 
       const lista = (contasData ?? []) as Conta[]
@@ -72,6 +104,7 @@ export default function InicioPage() {
       setSaldos(acumulado)
 
       setDoMes((movimentosMes ?? []) as unknown as Movimento[])
+      setLembretes((pendencias ?? []) as Pendencia[])
       setCarregando(false)
     }
     carregar()
@@ -151,6 +184,50 @@ export default function InicioPage() {
           </p>
         </div>
       </div>
+
+      {/* Lembretes de vencimento */}
+      {lembretes.length > 0 && (
+        <section className="mb-6 rounded-xl border border-alerta/30 bg-alerta/5 p-4">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-texto">
+              <IconeAlerta className="h-4 w-4 text-alerta" />
+              Contas a vencer
+            </h2>
+            <Link href="/contas-pagar" className="text-xs font-medium text-primaria hover:underline">
+              Ver todas
+            </Link>
+          </div>
+
+          <ul className="space-y-2">
+            {lembretes.slice(0, 5).map((p) => {
+              const atrasada = situacaoVencimento(p.data_vencimento) === 'vencida'
+              return (
+                <li key={p.id} className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-texto">{p.descricao}</p>
+                    <p className={`text-xs ${atrasada ? 'font-medium text-despesa' : 'text-texto-suave'}`}>
+                      {textoVencimento(p.data_vencimento)} · {dataBR(p.data_vencimento)}
+                    </p>
+                  </div>
+                  <span
+                    className={`shrink-0 whitespace-nowrap text-sm font-semibold ${
+                      p.tipo === 'receita' ? 'text-receita' : 'text-despesa'
+                    }`}
+                  >
+                    {moeda(p.valor)}
+                  </span>
+                </li>
+              )
+            })}
+          </ul>
+
+          {lembretes.length > 5 && (
+            <p className="mt-2 text-xs text-texto-suave">
+              e mais {lembretes.length - 5} conta{lembretes.length - 5 > 1 ? 's' : ''}.
+            </p>
+          )}
+        </section>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Coluna principal */}

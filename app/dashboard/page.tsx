@@ -227,6 +227,8 @@ export default function DashboardPage() {
       .select(
         'data, valor, tipo, escopo, dono_id, categorias(nome), contas(nome), cartoes_credito(nome)'
       )
+      // Só o que já foi efetivado: contas a pagar em aberto não são gasto realizado
+      .eq('status', 'pago')
       .gte('data', dataInicio)
       .order('data')
 

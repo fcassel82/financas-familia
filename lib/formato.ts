@@ -25,6 +25,56 @@ export function hojeISO(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
+/**
+ * Dias entre hoje e uma data ISO. Negativo = já passou.
+ * Compara só a parte da data, sem hora, para evitar erro de fuso.
+ */
+export function diasAte(iso: string): number {
+  const [ano, mes, dia] = iso.split('-').map(Number)
+  const alvo = new Date(ano, mes - 1, dia)
+  const hoje = new Date()
+  const hojeSemHora = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate())
+  return Math.round((alvo.getTime() - hojeSemHora.getTime()) / 86_400_000)
+}
+
+export type SituacaoVencimento = 'vencida' | 'hoje' | 'proxima' | 'futura'
+
+/** Classifica um vencimento; "próxima" = vence nos próximos 7 dias */
+export function situacaoVencimento(iso: string): SituacaoVencimento {
+  const dias = diasAte(iso)
+  if (dias < 0) return 'vencida'
+  if (dias === 0) return 'hoje'
+  if (dias <= 7) return 'proxima'
+  return 'futura'
+}
+
+/** Texto amigável: "Venceu há 3 dias", "Vence hoje", "Vence em 5 dias" */
+export function textoVencimento(iso: string): string {
+  const dias = diasAte(iso)
+  if (dias === 0) return 'Vence hoje'
+  if (dias === 1) return 'Vence amanhã'
+  if (dias === -1) return 'Venceu ontem'
+  if (dias < 0) return `Venceu há ${Math.abs(dias)} dias`
+  return `Vence em ${dias} dias`
+}
+
+/** Soma dias a uma data ISO */
+export function somarDias(iso: string, dias: number): string {
+  const [ano, mes, dia] = iso.split('-').map(Number)
+  const d = new Date(ano, mes - 1, dia + dias)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+/** Soma meses a uma data ISO, mantendo o último dia do mês quando necessário */
+export function somarMeses(iso: string, meses: number): string {
+  const [ano, mes, dia] = iso.split('-').map(Number)
+  const alvo = new Date(ano, mes - 1 + meses, 1)
+  // Ex: 31/01 + 1 mês vira 28/02, não 03/03
+  const ultimoDia = new Date(alvo.getFullYear(), alvo.getMonth() + 1, 0).getDate()
+  const diaFinal = Math.min(dia, ultimoDia)
+  return `${alvo.getFullYear()}-${String(alvo.getMonth() + 1).padStart(2, '0')}-${String(diaFinal).padStart(2, '0')}`
+}
+
 /** "2026-06" a partir de um Date */
 export function chaveMes(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`

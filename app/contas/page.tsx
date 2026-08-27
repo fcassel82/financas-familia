@@ -60,7 +60,7 @@ export default function ContasPage() {
   const carregar = useCallback(async () => {
     const [{ data: contasData }, { data: movimentos }] = await Promise.all([
       supabase.from('contas').select('*').order('nome'),
-      supabase.from('transacoes').select('conta_id, valor, tipo'),
+      supabase.from('transacoes').select('conta_id, valor, tipo').eq('status', 'pago'),
     ])
 
     const lista = (contasData ?? []) as Conta[]
