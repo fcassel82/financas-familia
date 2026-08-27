@@ -54,7 +54,21 @@ if (!respLogin.ok) {
 
 const { access_token: token } = await respLogin.json()
 
-const tabelas = ['perfis', 'categorias', 'subcategorias', 'transacoes', 'investimentos']
+const tabelas = [
+  'perfis',
+  'categorias',
+  'subcategorias',
+  'transacoes',
+  'investimentos',
+  'contas',
+  'cartoes_credito',
+  'fornecedores',
+  'bens',
+  'veiculos',
+  'abastecimentos',
+  'manutencoes',
+  'trocas_gas',
+]
 const backup = { gerado_em: new Date().toISOString(), tabelas: {} }
 
 for (const tabela of tabelas) {

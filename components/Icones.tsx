@@ -141,3 +141,34 @@ export function IconeAlerta({ className = base }: Props) {
     </svg>
   )
 }
+
+export function IconeSofa({ className = base }: Props) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 11V8a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v3" />
+      <path d="M2 12.5a2 2 0 0 1 4 0V15h12v-2.5a2 2 0 0 1 4 0V18H2Z" />
+      <path d="M5 18v2M19 18v2" />
+    </svg>
+  )
+}
+
+export function IconeCarro({ className = base }: Props) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M5 17h14M3 17v-4l2-5.5A2 2 0 0 1 6.9 6h10.2a2 2 0 0 1 1.9 1.5L21 13v4" />
+      <path d="M4.5 13h15" />
+      <circle cx="7.5" cy="17" r="1.6" />
+      <circle cx="16.5" cy="17" r="1.6" />
+    </svg>
+  )
+}
+
+export function IconeChama({ className = base }: Props) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 3c.6 3 3 4 3 7a3 3 0 0 1-6 0c0-1 .4-1.7 1-2.3" />
+      <path d="M12 21a6 6 0 0 0 6-6c0-3.5-2.5-5.5-3.5-8-1.2 2-2.5 2.8-2.5 5" />
+      <path d="M12 21a6 6 0 0 1-6-6c0-2 1-3.5 2-5" />
+    </svg>
+  )
+}
