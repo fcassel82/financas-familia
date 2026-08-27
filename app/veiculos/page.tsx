@@ -29,7 +29,12 @@ type Veiculo = {
   escopo: string
 }
 
-type Abastecimento = AbastecimentoParaCalculo & { posto: string | null }
+type Abastecimento = AbastecimentoParaCalculo & { posto: string | null; transacao_id: string | null }
+
+type Categoria = { id: string; nome: string; tipo: string }
+type Subcategoria = { id: string; categoria_id: string; nome: string }
+type Conta = { id: string; nome: string }
+type Cartao = { id: string; nome: string }
 
 type Manutencao = {
   id: string
@@ -78,6 +83,16 @@ const FORM_ABASTECIMENTO = {
   posto: '',
 }
 
+const FORM_LANCAMENTO = {
+  descricao: '',
+  categoria_id: '',
+  subcategoria_id: '',
+  pago_com: 'conta' as 'conta' | 'cartao',
+  conta_id: '',
+  cartao_id: '',
+  escopo: 'pessoal',
+}
+
 const FORM_MANUTENCAO = {
   data: hojeISO(),
   odometro: '',
@@ -107,6 +122,16 @@ export default function VeiculosPage() {
   const [formManutencao, setFormManutencao] = useState(FORM_MANUTENCAO)
   const [salvando, setSalvando] = useState(false)
 
+  const [categorias, setCategorias] = useState<Categoria[]>([])
+  const [subcategorias, setSubcategorias] = useState<Subcategoria[]>([])
+  const [contas, setContas] = useState<Conta[]>([])
+  const [cartoes, setCartoes] = useState<Cartao[]>([])
+  const [modalLancar, setModalLancar] = useState(false)
+  const [abastecimentoParaLancar, setAbastecimentoParaLancar] = useState<Abastecimento | null>(
+    null
+  )
+  const [formLancamento, setFormLancamento] = useState(FORM_LANCAMENTO)
+
   useEffect(() => {
     async function carregarVeiculos() {
       const { data } = await supabase.from('veiculos').select('*').eq('ativo', true).order('nome')
@@ -116,6 +141,20 @@ export default function VeiculosPage() {
       else setCarregando(false)
     }
     carregarVeiculos()
+
+    async function carregarListasLancamento() {
+      const [{ data: cats }, { data: subs }, { data: cts }, { data: crts }] = await Promise.all([
+        supabase.from('categorias').select('id, nome, tipo').eq('tipo', 'despesa').order('nome'),
+        supabase.from('subcategorias').select('id, categoria_id, nome').order('nome'),
+        supabase.from('contas').select('id, nome').eq('ativo', true).order('nome'),
+        supabase.from('cartoes_credito').select('id, nome').eq('ativo', true).order('nome'),
+      ])
+      setCategorias((cats ?? []) as Categoria[])
+      setSubcategorias((subs ?? []) as Subcategoria[])
+      setContas((cts ?? []) as Conta[])
+      setCartoes((crts ?? []) as Cartao[])
+    }
+    carregarListasLancamento()
   }, [])
 
   const carregar = useCallback(async () => {
@@ -123,7 +162,7 @@ export default function VeiculosPage() {
     const [{ data: abast }, { data: manut }] = await Promise.all([
       supabase
         .from('abastecimentos')
-        .select('id, data, odometro, litros, valor_total, tanque_cheio, posto')
+        .select('id, data, odometro, litros, valor_total, tanque_cheio, posto, transacao_id')
         .eq('veiculo_id', veiculoId)
         .order('data', { ascending: false }),
       supabase
@@ -223,7 +262,7 @@ export default function VeiculosPage() {
     const { data: userData } = await supabase.auth.getUser()
     const userId = userData.user?.id
 
-    const { error } = await supabase.from('abastecimentos').insert({
+    const registro = {
       veiculo_id: veiculoId,
       data: formAbastecimento.data,
       odometro: parseFloat(formAbastecimento.odometro),
@@ -232,7 +271,13 @@ export default function VeiculosPage() {
       tanque_cheio: formAbastecimento.tanque_cheio,
       posto: formAbastecimento.posto || null,
       dono_id: userId,
-    })
+    }
+
+    const { data: inserido, error } = await supabase
+      .from('abastecimentos')
+      .insert(registro)
+      .select('id')
+      .single()
 
     setSalvando(false)
     if (error) {
@@ -241,6 +286,79 @@ export default function VeiculosPage() {
     }
     setModalAbastecimento(false)
     setFormAbastecimento(FORM_ABASTECIMENTO)
+    carregar()
+
+    // Pergunta se o valor pago deve virar um lançamento, com as mesmas
+    // ferramentas da tela de Lançamentos (categoria, conta/cartão, escopo)
+    abrirPerguntaLancamento({
+      id: inserido.id,
+      data: registro.data,
+      odometro: registro.odometro,
+      litros: registro.litros,
+      valor_total: registro.valor_total,
+      tanque_cheio: registro.tanque_cheio,
+      posto: registro.posto,
+      transacao_id: null,
+    })
+  }
+
+  function abrirPerguntaLancamento(a: Abastecimento) {
+    const nomeVeiculo = veiculos.find((v) => v.id === veiculoId)?.nome ?? ''
+    setAbastecimentoParaLancar(a)
+    setFormLancamento({
+      ...FORM_LANCAMENTO,
+      descricao: `Abastecimento${nomeVeiculo ? ' - ' + nomeVeiculo : ''}${a.posto ? ' (' + a.posto + ')' : ''}`,
+    })
+    setMensagem('')
+    setModalLancar(true)
+  }
+
+  async function salvarLancamentoAbastecimento(e: React.FormEvent) {
+    e.preventDefault()
+    if (!abastecimentoParaLancar) return
+    setSalvando(true)
+    setMensagem('')
+
+    const { data: userData } = await supabase.auth.getUser()
+    const userId = userData.user?.id
+
+    const { data: transacao, error: erroTransacao } = await supabase
+      .from('transacoes')
+      .insert({
+        data: abastecimentoParaLancar.data,
+        descricao: formLancamento.descricao,
+        categoria_id: formLancamento.categoria_id || null,
+        subcategoria_id: formLancamento.subcategoria_id || null,
+        valor: abastecimentoParaLancar.valor_total,
+        tipo: 'despesa',
+        escopo: formLancamento.escopo,
+        conta_id: formLancamento.pago_com === 'conta' ? formLancamento.conta_id || null : null,
+        cartao_id: formLancamento.pago_com === 'cartao' ? formLancamento.cartao_id || null : null,
+        dono_id: userId,
+        lancado_por: userId,
+      })
+      .select('id')
+      .single()
+
+    if (erroTransacao) {
+      setSalvando(false)
+      setMensagem('Erro ao lançar: ' + erroTransacao.message)
+      return
+    }
+
+    const { error: erroVinculo } = await supabase
+      .from('abastecimentos')
+      .update({ transacao_id: transacao.id })
+      .eq('id', abastecimentoParaLancar.id)
+
+    setSalvando(false)
+    if (erroVinculo) {
+      setMensagem('Lançamento criado, mas não foi possível vinculá-lo ao abastecimento: ' + erroVinculo.message)
+      return
+    }
+
+    setModalLancar(false)
+    setAbastecimentoParaLancar(null)
     carregar()
   }
 
@@ -277,9 +395,36 @@ export default function VeiculosPage() {
     carregar()
   }
 
-  async function apagarRegistro(tabela: 'abastecimentos' | 'manutencoes', id: string) {
+  async function apagarManutencao(id: string) {
     if (!window.confirm('Apagar este registro?')) return
-    const { error } = await supabase.from(tabela).delete().eq('id', id)
+    const { error } = await supabase.from('manutencoes').delete().eq('id', id)
+    if (error) {
+      setMensagem('Erro ao apagar: ' + error.message)
+      return
+    }
+    carregar()
+  }
+
+  async function apagarAbastecimento(a: Abastecimento) {
+    if (!window.confirm('Apagar este abastecimento?')) return
+
+    if (a.transacao_id) {
+      const apagarTambem = window.confirm(
+        'Este abastecimento tem um lançamento financeiro vinculado.\n\nApagar o lançamento também? (Cancelar mantém o lançamento, só o abastecimento é apagado.)'
+      )
+      if (apagarTambem) {
+        const { error: erroTransacao } = await supabase
+          .from('transacoes')
+          .delete()
+          .eq('id', a.transacao_id)
+        if (erroTransacao) {
+          setMensagem('Erro ao apagar o lançamento: ' + erroTransacao.message)
+          return
+        }
+      }
+    }
+
+    const { error } = await supabase.from('abastecimentos').delete().eq('id', a.id)
     if (error) {
       setMensagem('Erro ao apagar: ' + error.message)
       return
@@ -630,6 +775,7 @@ export default function VeiculosPage() {
                       <th className="p-3 text-right font-medium">Total</th>
                       <th className="p-3 text-right font-medium">km/l</th>
                       <th className="p-3" />
+                      <th className="p-3" />
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-borda">
@@ -659,9 +805,23 @@ export default function VeiculosPage() {
                         <td className="whitespace-nowrap p-3 text-right font-semibold text-primaria">
                           {a.consumo ? a.consumo.toFixed(1) : '—'}
                         </td>
+                        <td className="whitespace-nowrap p-3 text-right">
+                          {a.transacao_id ? (
+                            <span className="rounded bg-primaria/10 px-2 py-1 text-xs font-medium text-primaria">
+                              Lançado
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => abrirPerguntaLancamento(a)}
+                              className="text-xs font-medium text-primaria hover:underline"
+                            >
+                              Lançar
+                            </button>
+                          )}
+                        </td>
                         <td className="p-3 text-right">
                           <button
-                            onClick={() => apagarRegistro('abastecimentos', a.id)}
+                            onClick={() => apagarAbastecimento(a)}
                             aria-label="Apagar abastecimento"
                             className="rounded p-1.5 text-texto-suave transition-colors hover:bg-despesa/10 hover:text-despesa"
                           >
@@ -714,7 +874,7 @@ export default function VeiculosPage() {
                       {moeda(m.custo)}
                     </span>
                     <button
-                      onClick={() => apagarRegistro('manutencoes', m.id)}
+                      onClick={() => apagarManutencao(m.id)}
                       aria-label="Apagar manutenção"
                       className="rounded p-1.5 text-texto-suave transition-colors hover:bg-despesa/10 hover:text-despesa"
                     >
@@ -826,6 +986,157 @@ export default function VeiculosPage() {
             </BotaoPrimario>
           </div>
         </form>
+      </Modal>
+
+      {/* Modal: lançar o abastecimento como despesa */}
+      <Modal
+        aberto={modalLancar}
+        titulo="Lançar este abastecimento?"
+        onFechar={() => setModalLancar(false)}
+      >
+        {abastecimentoParaLancar && (
+          <form onSubmit={salvarLancamentoAbastecimento} className="space-y-4">
+            <p className="text-sm text-texto-suave">
+              Você pagou <strong className="text-texto">{moeda(abastecimentoParaLancar.valor_total)}</strong>{' '}
+              neste abastecimento. Quer registrar isso como uma despesa?
+            </p>
+
+            <Campo rotulo="Descrição">
+              <input
+                className={classeInput}
+                value={formLancamento.descricao}
+                onChange={(e) => setFormLancamento({ ...formLancamento, descricao: e.target.value })}
+                required
+              />
+            </Campo>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Campo rotulo="Categoria">
+                <select
+                  className={classeInput}
+                  value={formLancamento.categoria_id}
+                  onChange={(e) =>
+                    setFormLancamento({
+                      ...formLancamento,
+                      categoria_id: e.target.value,
+                      subcategoria_id: '',
+                    })
+                  }
+                >
+                  <option value="">Sem categoria</option>
+                  {categorias.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.nome}
+                    </option>
+                  ))}
+                </select>
+              </Campo>
+              <Campo rotulo="Subcategoria">
+                <select
+                  className={classeInput}
+                  value={formLancamento.subcategoria_id}
+                  onChange={(e) =>
+                    setFormLancamento({ ...formLancamento, subcategoria_id: e.target.value })
+                  }
+                  disabled={!formLancamento.categoria_id}
+                >
+                  <option value="">Nenhuma</option>
+                  {subcategorias
+                    .filter((sc) => sc.categoria_id === formLancamento.categoria_id)
+                    .map((sc) => (
+                      <option key={sc.id} value={sc.id}>
+                        {sc.nome}
+                      </option>
+                    ))}
+                </select>
+              </Campo>
+            </div>
+
+            <div>
+              <span className="mb-1.5 block text-sm font-medium text-texto">Pago com</span>
+              <div className="mb-3 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setFormLancamento({ ...formLancamento, pago_com: 'conta' })}
+                  className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+                    formLancamento.pago_com === 'conta'
+                      ? 'bg-marinho text-white'
+                      : 'border border-borda bg-superficie text-texto-suave hover:bg-fundo'
+                  }`}
+                >
+                  Conta
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFormLancamento({ ...formLancamento, pago_com: 'cartao' })}
+                  className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+                    formLancamento.pago_com === 'cartao'
+                      ? 'bg-marinho text-white'
+                      : 'border border-borda bg-superficie text-texto-suave hover:bg-fundo'
+                  }`}
+                >
+                  Cartão de crédito
+                </button>
+              </div>
+
+              {formLancamento.pago_com === 'conta' ? (
+                <select
+                  className={classeInput}
+                  value={formLancamento.conta_id}
+                  onChange={(e) => setFormLancamento({ ...formLancamento, conta_id: e.target.value })}
+                >
+                  <option value="">Selecione a conta...</option>
+                  {contas.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.nome}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <select
+                  className={classeInput}
+                  value={formLancamento.cartao_id}
+                  onChange={(e) => setFormLancamento({ ...formLancamento, cartao_id: e.target.value })}
+                >
+                  <option value="">Selecione o cartão...</option>
+                  {cartoes.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.nome}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+
+            <Campo rotulo="Este lançamento é...">
+              <select
+                className={classeInput}
+                value={formLancamento.escopo}
+                onChange={(e) => setFormLancamento({ ...formLancamento, escopo: e.target.value })}
+              >
+                <option value="familiar">Familiar (todos veem)</option>
+                <option value="pessoal">Pessoal (só eu vejo)</option>
+              </select>
+            </Campo>
+
+            <Mensagem texto={mensagem} />
+
+            <div className="flex justify-end gap-2 pt-2">
+              <BotaoSecundario
+                type="button"
+                onClick={() => {
+                  setModalLancar(false)
+                  setAbastecimentoParaLancar(null)
+                }}
+              >
+                Não lançar
+              </BotaoSecundario>
+              <BotaoPrimario type="submit" disabled={salvando}>
+                {salvando ? 'Salvando...' : 'Lançar despesa'}
+              </BotaoPrimario>
+            </div>
+          </form>
+        )}
       </Modal>
 
       {/* Modal: manutenção */}
