@@ -12,12 +12,14 @@ import {
   normalizar,
   rotuloMesLongo,
 } from '@/lib/formato'
-import { IconeMais, IconeSeta } from '@/components/Icones'
+import { IconeLixeira, IconeMais, IconeSeta } from '@/components/Icones'
 import {
   BotaoPrimario,
+  BotaoSecundario,
   CabecalhoPagina,
   Campo,
   EstadoVazio,
+  Mensagem,
   Pagina,
   classeInput,
 } from '@/components/ui'
@@ -30,25 +32,59 @@ type Transacao = {
   tipo: string
   escopo: string
   dono_id: string
+  categoria_id: string | null
+  subcategoria_id: string | null
+  conta_id: string | null
+  cartao_id: string | null
   categorias: { nome: string } | null
   subcategorias: { nome: string } | null
   contas: { nome: string; cor: string | null } | null
   cartoes_credito: { nome: string; cor: string | null } | null
 }
 
-type Categoria = { id: string; nome: string }
+type Categoria = { id: string; nome: string; tipo: string }
 type Subcategoria = { id: string; categoria_id: string; nome: string }
 type Membro = { id: string; nome: string }
 type Conta = { id: string; nome: string }
+type Cartao = { id: string; nome: string }
+
+type FormEdicao = {
+  tipo: string
+  data: string
+  descricao: string
+  categoria_id: string
+  subcategoria_id: string
+  valor: string
+  pago_com: 'conta' | 'cartao'
+  conta_id: string
+  cartao_id: string
+  escopo: string
+}
+
+function formularioEdicaoDe(t: Transacao): FormEdicao {
+  return {
+    tipo: t.tipo,
+    data: t.data,
+    descricao: t.descricao,
+    categoria_id: t.categoria_id ?? '',
+    subcategoria_id: t.subcategoria_id ?? '',
+    valor: String(t.valor),
+    pago_com: t.cartao_id ? 'cartao' : 'conta',
+    conta_id: t.conta_id ?? '',
+    cartao_id: t.cartao_id ?? '',
+    escopo: t.escopo,
+  }
+}
 
 export default function TransacoesPage() {
-  const [aba, setAba] = useState<'familiar' | 'pessoal'>('familiar')
+  const [aba, setAba] = useState<'familiar' | 'pessoal' | 'todos'>('familiar')
   const [transacoes, setTransacoes] = useState<Transacao[]>([])
   const [carregando, setCarregando] = useState(true)
 
   const [categorias, setCategorias] = useState<Categoria[]>([])
   const [subcategorias, setSubcategorias] = useState<Subcategoria[]>([])
   const [contas, setContas] = useState<Conta[]>([])
+  const [cartoes, setCartoes] = useState<Cartao[]>([])
   const [membros, setMembros] = useState<Membro[]>([])
   const [isAdmin, setIsAdmin] = useState(false)
   const [userId, setUserId] = useState('')
@@ -61,24 +97,33 @@ export default function TransacoesPage() {
   const [membroFiltro, setMembroFiltro] = useState('')
   const [filtrosVisiveis, setFiltrosVisiveis] = useState(false)
 
+  const [editandoId, setEditandoId] = useState<string | null>(null)
+  const [formEdicao, setFormEdicao] = useState<FormEdicao | null>(null)
+  const [salvandoEdicao, setSalvandoEdicao] = useState(false)
+  const [apagandoEdicao, setApagandoEdicao] = useState(false)
+  const [mensagemEdicao, setMensagemEdicao] = useState('')
+
   useEffect(() => {
     async function carregarListas() {
       const { data: userData } = await supabase.auth.getUser()
       const uid = userData.user?.id
       if (uid) setUserId(uid)
 
-      const [{ data: cats }, { data: subs }, { data: cts }, { data: perfil }] = await Promise.all([
-        supabase.from('categorias').select('id, nome').order('nome'),
-        supabase.from('subcategorias').select('id, categoria_id, nome').order('nome'),
-        supabase.from('contas').select('id, nome').order('nome'),
-        uid
-          ? supabase.from('perfis').select('papel').eq('id', uid).single()
-          : Promise.resolve({ data: null }),
-      ])
+      const [{ data: cats }, { data: subs }, { data: cts }, { data: crts }, { data: perfil }] =
+        await Promise.all([
+          supabase.from('categorias').select('id, nome, tipo').order('nome'),
+          supabase.from('subcategorias').select('id, categoria_id, nome').order('nome'),
+          supabase.from('contas').select('id, nome').order('nome'),
+          supabase.from('cartoes_credito').select('id, nome').order('nome'),
+          uid
+            ? supabase.from('perfis').select('papel').eq('id', uid).single()
+            : Promise.resolve({ data: null }),
+        ])
 
       setCategorias((cats ?? []) as Categoria[])
       setSubcategorias((subs ?? []) as Subcategoria[])
       setContas((cts ?? []) as Conta[])
+      setCartoes((crts ?? []) as Cartao[])
 
       const admin = perfil?.papel === 'admin'
       setIsAdmin(admin)
@@ -97,9 +142,13 @@ export default function TransacoesPage() {
     let query = supabase
       .from('transacoes')
       .select(
-        'id, data, descricao, valor, tipo, escopo, dono_id, categorias(nome), subcategorias(nome), contas(nome, cor), cartoes_credito(nome, cor)'
+        'id, data, descricao, valor, tipo, escopo, dono_id, categoria_id, subcategoria_id, conta_id, cartao_id, categorias(nome), subcategorias(nome), contas(nome, cor), cartoes_credito(nome, cor)'
       )
-      .eq('escopo', aba)
+
+    // "Todos" junta familiar + meus pessoais; as duas abas isoladas filtram por escopo
+    if (aba !== 'todos') query = query.eq('escopo', aba)
+
+    query = query
       // Contas a pagar em aberto têm tela própria (/contas-pagar); aqui só o efetivado
       .eq('status', 'pago')
       // Transferências entre contas próprias têm tela própria e não são receita/despesa
@@ -175,6 +224,80 @@ export default function TransacoesPage() {
         : 'border border-borda bg-superficie text-texto-suave hover:bg-fundo'
     }`
 
+  function abrirEdicao(t: Transacao) {
+    setEditandoId(t.id)
+    setFormEdicao(formularioEdicaoDe(t))
+    setMensagemEdicao('')
+  }
+
+  function cancelarEdicao() {
+    setEditandoId(null)
+    setFormEdicao(null)
+  }
+
+  async function salvarEdicao(e: React.FormEvent) {
+    e.preventDefault()
+    if (!editandoId || !formEdicao) return
+    setSalvandoEdicao(true)
+    setMensagemEdicao('')
+
+    const registro = {
+      data: formEdicao.data,
+      descricao: formEdicao.descricao,
+      categoria_id: formEdicao.categoria_id || null,
+      subcategoria_id: formEdicao.subcategoria_id || null,
+      valor: parseFloat(formEdicao.valor),
+      tipo: formEdicao.tipo,
+      escopo: formEdicao.escopo,
+      conta_id: formEdicao.pago_com === 'conta' ? formEdicao.conta_id || null : null,
+      cartao_id: formEdicao.pago_com === 'cartao' ? formEdicao.cartao_id || null : null,
+    }
+
+    const { error } = await supabase.from('transacoes').update(registro).eq('id', editandoId)
+
+    setSalvandoEdicao(false)
+    if (error) {
+      setMensagemEdicao('Erro ao salvar: ' + error.message)
+      return
+    }
+
+    cancelarEdicao()
+    carregar()
+  }
+
+  async function apagarEdicao() {
+    if (!editandoId || !formEdicao) return
+    if (!window.confirm(`Apagar o lançamento "${formEdicao.descricao}"?`)) return
+
+    setApagandoEdicao(true)
+    const { error } = await supabase.from('transacoes').delete().eq('id', editandoId)
+    setApagandoEdicao(false)
+
+    if (error) {
+      setMensagemEdicao('Erro ao apagar: ' + error.message)
+      return
+    }
+
+    cancelarEdicao()
+    carregar()
+  }
+
+  const categoriasDaEdicao = formEdicao
+    ? categorias.filter((c) => c.tipo === formEdicao.tipo)
+    : []
+  const subcategoriasDaEdicao = formEdicao
+    ? subcategorias.filter((s) => s.categoria_id === formEdicao.categoria_id)
+    : []
+
+  const classeSeletorTipo = (ativo: boolean, valorTipo: string) =>
+    `flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+      ativo
+        ? valorTipo === 'receita'
+          ? 'bg-receita text-white'
+          : 'bg-despesa text-white'
+        : 'border border-borda bg-superficie text-texto-suave hover:bg-fundo'
+    }`
+
   return (
     <Pagina>
       <CabecalhoPagina
@@ -210,7 +333,10 @@ export default function TransacoesPage() {
       </div>
 
       {/* Abas de escopo */}
-      <div className="mb-4 flex gap-2">
+      <div className="mb-4 flex flex-wrap gap-2">
+        <button onClick={() => setAba('todos')} className={classeAba('todos')}>
+          Todos
+        </button>
         <button onClick={() => setAba('familiar')} className={classeAba('familiar')}>
           Familiares
         </button>
@@ -369,6 +495,210 @@ export default function TransacoesPage() {
                   const origem = t.contas?.nome ?? t.cartoes_credito?.nome
                   const cor = t.contas?.cor ?? t.cartoes_credito?.cor
                   const podeEditar = isAdmin || t.dono_id === userId
+                  const emEdicao = editandoId === t.id && formEdicao
+
+                  if (emEdicao) {
+                    return (
+                      <li key={t.id} className="px-4 py-4">
+                        <form onSubmit={salvarEdicao} className="space-y-3">
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setFormEdicao({ ...formEdicao, tipo: 'despesa' })}
+                              className={classeSeletorTipo(formEdicao.tipo === 'despesa', 'despesa')}
+                            >
+                              Despesa
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setFormEdicao({ ...formEdicao, tipo: 'receita' })}
+                              className={classeSeletorTipo(formEdicao.tipo === 'receita', 'receita')}
+                            >
+                              Receita
+                            </button>
+                          </div>
+
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            <Campo rotulo="Data">
+                              <input
+                                type="date"
+                                className={classeInput}
+                                value={formEdicao.data}
+                                onChange={(e) =>
+                                  setFormEdicao({ ...formEdicao, data: e.target.value })
+                                }
+                                required
+                              />
+                            </Campo>
+                            <Campo rotulo="Valor (R$)">
+                              <input
+                                type="number"
+                                step="0.01"
+                                className={classeInput}
+                                value={formEdicao.valor}
+                                onChange={(e) =>
+                                  setFormEdicao({ ...formEdicao, valor: e.target.value })
+                                }
+                                required
+                              />
+                            </Campo>
+                          </div>
+
+                          <Campo rotulo="Descrição">
+                            <input
+                              className={classeInput}
+                              value={formEdicao.descricao}
+                              onChange={(e) =>
+                                setFormEdicao({ ...formEdicao, descricao: e.target.value })
+                              }
+                              required
+                            />
+                          </Campo>
+
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            <Campo rotulo="Categoria">
+                              <select
+                                className={classeInput}
+                                value={formEdicao.categoria_id}
+                                onChange={(e) =>
+                                  setFormEdicao({
+                                    ...formEdicao,
+                                    categoria_id: e.target.value,
+                                    subcategoria_id: '',
+                                  })
+                                }
+                              >
+                                <option value="">Sem categoria</option>
+                                {categoriasDaEdicao.map((c) => (
+                                  <option key={c.id} value={c.id}>
+                                    {c.nome}
+                                  </option>
+                                ))}
+                              </select>
+                            </Campo>
+                            <Campo rotulo="Subcategoria">
+                              <select
+                                className={classeInput}
+                                value={formEdicao.subcategoria_id}
+                                onChange={(e) =>
+                                  setFormEdicao({ ...formEdicao, subcategoria_id: e.target.value })
+                                }
+                                disabled={!formEdicao.categoria_id}
+                              >
+                                <option value="">Nenhuma</option>
+                                {subcategoriasDaEdicao.map((s) => (
+                                  <option key={s.id} value={s.id}>
+                                    {s.nome}
+                                  </option>
+                                ))}
+                              </select>
+                            </Campo>
+                          </div>
+
+                          <div>
+                            <span className="mb-1.5 block text-sm font-medium text-texto">
+                              Pago com
+                            </span>
+                            <div className="mb-2 flex gap-2">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setFormEdicao({ ...formEdicao, pago_com: 'conta' })
+                                }
+                                className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                                  formEdicao.pago_com === 'conta'
+                                    ? 'bg-marinho text-white'
+                                    : 'border border-borda bg-superficie text-texto-suave hover:bg-fundo'
+                                }`}
+                              >
+                                Conta
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setFormEdicao({ ...formEdicao, pago_com: 'cartao' })
+                                }
+                                className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                                  formEdicao.pago_com === 'cartao'
+                                    ? 'bg-marinho text-white'
+                                    : 'border border-borda bg-superficie text-texto-suave hover:bg-fundo'
+                                }`}
+                              >
+                                Cartão de crédito
+                              </button>
+                            </div>
+                            {formEdicao.pago_com === 'conta' ? (
+                              <select
+                                className={classeInput}
+                                value={formEdicao.conta_id}
+                                onChange={(e) =>
+                                  setFormEdicao({ ...formEdicao, conta_id: e.target.value })
+                                }
+                              >
+                                <option value="">Selecione a conta...</option>
+                                {contas.map((c) => (
+                                  <option key={c.id} value={c.id}>
+                                    {c.nome}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              <select
+                                className={classeInput}
+                                value={formEdicao.cartao_id}
+                                onChange={(e) =>
+                                  setFormEdicao({ ...formEdicao, cartao_id: e.target.value })
+                                }
+                              >
+                                <option value="">Selecione o cartão...</option>
+                                {cartoes.map((c) => (
+                                  <option key={c.id} value={c.id}>
+                                    {c.nome}
+                                  </option>
+                                ))}
+                              </select>
+                            )}
+                          </div>
+
+                          <Campo rotulo="Este lançamento é...">
+                            <select
+                              className={classeInput}
+                              value={formEdicao.escopo}
+                              onChange={(e) =>
+                                setFormEdicao({ ...formEdicao, escopo: e.target.value })
+                              }
+                            >
+                              <option value="familiar">Familiar (todos veem)</option>
+                              <option value="pessoal">Pessoal (só eu vejo)</option>
+                            </select>
+                          </Campo>
+
+                          <Mensagem texto={mensagemEdicao} />
+
+                          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-borda pt-3">
+                            <button
+                              type="button"
+                              onClick={apagarEdicao}
+                              disabled={apagandoEdicao}
+                              className="inline-flex items-center gap-2 rounded-lg border border-despesa/30 px-3 py-2 text-xs font-medium text-despesa transition-colors hover:bg-despesa/10 disabled:opacity-50"
+                            >
+                              <IconeLixeira className="h-4 w-4" />
+                              {apagandoEdicao ? 'Apagando...' : 'Apagar'}
+                            </button>
+                            <div className="flex gap-2">
+                              <BotaoSecundario type="button" onClick={cancelarEdicao}>
+                                Cancelar
+                              </BotaoSecundario>
+                              <BotaoPrimario type="submit" disabled={salvandoEdicao}>
+                                {salvandoEdicao ? 'Salvando...' : 'Salvar'}
+                              </BotaoPrimario>
+                            </div>
+                          </div>
+                        </form>
+                      </li>
+                    )
+                  }
+
                   return (
                     <li key={t.id} className="flex items-center justify-between gap-3 px-4 py-3">
                       <div className="flex min-w-0 items-center gap-3">
@@ -382,6 +712,9 @@ export default function TransacoesPage() {
                             {t.categorias?.nome ?? 'Sem categoria'}
                             {t.subcategorias?.nome ? ` / ${t.subcategorias.nome}` : ''}
                             {origem ? ` · ${origem}` : ''}
+                            {aba === 'todos'
+                              ? ` · ${t.escopo === 'familiar' ? 'Familiar' : 'Pessoal'}`
+                              : ''}
                           </p>
                         </div>
                       </div>
@@ -395,12 +728,12 @@ export default function TransacoesPage() {
                           {receita ? '+' : '−'} {moeda(t.valor)}
                         </span>
                         {podeEditar && (
-                          <Link
-                            href={`/lancamentos?id=${t.id}`}
+                          <button
+                            onClick={() => abrirEdicao(t)}
                             className="text-xs font-medium text-primaria hover:underline"
                           >
                             Editar
-                          </Link>
+                          </button>
                         )}
                       </div>
                     </li>
