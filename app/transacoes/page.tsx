@@ -12,6 +12,7 @@ import {
   normalizar,
   rotuloMesLongo,
 } from '@/lib/formato'
+import { sugerirCategoriaLancamento } from '@/lib/sugerirCategoriaHistorico'
 import { IconeLixeira, IconeMais, IconeSeta } from '@/components/Icones'
 import {
   BotaoPrimario,
@@ -233,6 +234,28 @@ export default function TransacoesPage() {
   function cancelarEdicao() {
     setEditandoId(null)
     setFormEdicao(null)
+  }
+
+  async function sugerirAoSairDaDescricaoEdicao() {
+    if (!formEdicao || formEdicao.categoria_id || !formEdicao.descricao.trim()) return
+    const descricaoConsultada = formEdicao.descricao
+    const sugestao = await sugerirCategoriaLancamento(
+      descricaoConsultada,
+      formEdicao.tipo,
+      categorias,
+      subcategorias
+    )
+    if (!sugestao) return
+    // Só aplica se, enquanto a busca rodava, a categoria continuou vazia e a
+    // descrição não mudou de novo — evita pisar numa escolha feita nesse meio-tempo
+    setFormEdicao((atual) => {
+      if (!atual || atual.categoria_id || atual.descricao !== descricaoConsultada) return atual
+      return {
+        ...atual,
+        categoria_id: sugestao.categoriaId,
+        subcategoria_id: sugestao.subcategoriaId || atual.subcategoria_id,
+      }
+    })
   }
 
   async function salvarEdicao(e: React.FormEvent) {
@@ -551,6 +574,7 @@ export default function TransacoesPage() {
                               onChange={(e) =>
                                 setFormEdicao({ ...formEdicao, descricao: e.target.value })
                               }
+                              onBlur={sugerirAoSairDaDescricaoEdicao}
                               required
                             />
                           </Campo>

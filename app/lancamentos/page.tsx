@@ -4,6 +4,7 @@ import { Suspense, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
 import { hojeISO, moeda, somarMeses } from '@/lib/formato'
+import { sugerirCategoriaLancamento } from '@/lib/sugerirCategoriaHistorico'
 import { IconeLixeira } from '@/components/Icones'
 import {
   BotaoPrimario,
@@ -133,6 +134,16 @@ function FormularioLancamento() {
     }
     carregarTransacao()
   }, [idEdicao])
+
+  async function sugerirAoSairDaDescricao() {
+    // Não pisa numa categoria que a pessoa já escolheu — só ajuda quando
+    // ela ainda não decidiu
+    if (categoriaId || !descricao.trim()) return
+    const sugestao = await sugerirCategoriaLancamento(descricao, tipo, categorias, subcategorias)
+    if (!sugestao || categoriaId) return
+    setCategoriaId(sugestao.categoriaId)
+    if (sugestao.subcategoriaId) setSubcategoriaId(sugestao.subcategoriaId)
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -267,6 +278,7 @@ function FormularioLancamento() {
             className={classeInput}
             value={descricao}
             onChange={(e) => setDescricao(e.target.value)}
+            onBlur={sugerirAoSairDaDescricao}
             placeholder="Ex: Supermercado"
             required
           />
