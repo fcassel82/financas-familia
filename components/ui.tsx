@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { IconeFechar } from './Icones'
 
 export function CabecalhoPagina({
@@ -131,6 +131,96 @@ export function Mensagem({ texto }: { texto: string }) {
   const erro = /^(erro|não|nenhum)/i.test(texto)
   return (
     <p className={`text-sm ${erro ? 'text-despesa' : 'text-receita'}`}>{texto}</p>
+  )
+}
+
+/**
+ * Dropdown de seleção múltipla via checkboxes (ex.: filtrar por várias
+ * categorias ao mesmo tempo). Fecha ao clicar fora, sem depender de nenhuma
+ * lib externa.
+ */
+export function SeletorMultiplo({
+  rotulo,
+  opcoes,
+  selecionados,
+  onChange,
+  placeholder = 'Todas',
+}: {
+  rotulo: string
+  opcoes: { id: string; nome: string }[]
+  selecionados: string[]
+  onChange: (ids: string[]) => void
+  placeholder?: string
+}) {
+  const [aberto, setAberto] = useState(false)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function aoClicarFora(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setAberto(false)
+      }
+    }
+    document.addEventListener('mousedown', aoClicarFora)
+    return () => document.removeEventListener('mousedown', aoClicarFora)
+  }, [])
+
+  function alternar(id: string) {
+    onChange(
+      selecionados.includes(id) ? selecionados.filter((s) => s !== id) : [...selecionados, id]
+    )
+  }
+
+  const rotuloBotao =
+    selecionados.length === 0
+      ? placeholder
+      : selecionados.length === 1
+        ? (opcoes.find((o) => o.id === selecionados[0])?.nome ?? '1 selecionada')
+        : `${selecionados.length} selecionadas`
+
+  return (
+    <div ref={containerRef} className="relative">
+      <p className="mb-1.5 text-xs font-medium text-texto-suave">{rotulo}</p>
+      <button
+        type="button"
+        onClick={() => setAberto((v) => !v)}
+        className={`${classeInput} flex items-center justify-between gap-2 text-left`}
+      >
+        <span className="truncate">{rotuloBotao}</span>
+        <span className="shrink-0 text-texto-suave">{aberto ? '▴' : '▾'}</span>
+      </button>
+
+      {aberto && (
+        <div className="absolute z-20 mt-1 max-h-64 w-full min-w-[220px] overflow-y-auto rounded-lg border border-borda bg-superficie p-2 shadow-lg">
+          {selecionados.length > 0 && (
+            <button
+              type="button"
+              onClick={() => onChange([])}
+              className="mb-1 block px-2 py-1 text-xs font-medium text-primaria hover:underline"
+            >
+              Limpar seleção
+            </button>
+          )}
+          {opcoes.length === 0 ? (
+            <p className="px-2 py-1.5 text-xs text-texto-suave">Nenhuma opção</p>
+          ) : (
+            opcoes.map((o) => (
+              <label
+                key={o.id}
+                className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm text-texto hover:bg-fundo"
+              >
+                <input
+                  type="checkbox"
+                  checked={selecionados.includes(o.id)}
+                  onChange={() => alternar(o.id)}
+                />
+                <span className="truncate">{o.nome}</span>
+              </label>
+            ))
+          )}
+        </div>
+      )}
+    </div>
   )
 }
 

@@ -16,7 +16,7 @@ import {
 } from 'recharts'
 import { supabase } from '@/lib/supabaseClient'
 import { moeda, rotuloMesCurto } from '@/lib/formato'
-import { CabecalhoPagina, EstadoVazio, Pagina, classeInput } from '@/components/ui'
+import { CabecalhoPagina, EstadoVazio, Pagina, SeletorMultiplo, classeInput } from '@/components/ui'
 
 type TransacaoResumo = {
   data: string
@@ -30,6 +30,8 @@ type TransacaoResumo = {
 }
 
 type Membro = { id: string; nome: string }
+type Categoria = { id: string; nome: string }
+type Subcategoria = { id: string; categoria_id: string; nome: string }
 type Periodo = 'mes' | '3m' | '6m' | 'ano'
 type Escopo = 'todos' | 'familiar' | 'pessoal'
 
@@ -193,6 +195,10 @@ export default function DashboardPage() {
   const [membroFiltro, setMembroFiltro] = useState('')
   const [membros, setMembros] = useState<Membro[]>([])
   const [isAdmin, setIsAdmin] = useState(false)
+  const [categorias, setCategorias] = useState<Categoria[]>([])
+  const [subcategorias, setSubcategorias] = useState<Subcategoria[]>([])
+  const [categoriasFiltro, setCategoriasFiltro] = useState<string[]>([])
+  const [subcategoriasFiltro, setSubcategoriasFiltro] = useState<string[]>([])
 
   useEffect(() => {
     async function carregarPerfil() {
@@ -214,8 +220,38 @@ export default function DashboardPage() {
         if (membrosData) setMembros(membrosData)
       }
     }
+    async function carregarCategorias() {
+      const [{ data: cats }, { data: subs }] = await Promise.all([
+        supabase.from('categorias').select('id, nome').order('nome'),
+        supabase.from('subcategorias').select('id, categoria_id, nome').order('nome'),
+      ])
+      if (cats) setCategorias(cats)
+      if (subs) setSubcategorias(subs)
+    }
     carregarPerfil()
+    carregarCategorias()
   }, [])
+
+  // Escolher uma categoria e depois trocá-la não deve deixar uma subcategoria
+  // da categoria antiga presa no filtro sem que ela apareça em lugar nenhum
+  function atualizarCategoriasFiltro(ids: string[]) {
+    setCategoriasFiltro(ids)
+    if (ids.length === 0) return
+    setSubcategoriasFiltro((atual) =>
+      atual.filter((subId) => {
+        const sub = subcategorias.find((s) => s.id === subId)
+        return sub && ids.includes(sub.categoria_id)
+      })
+    )
+  }
+
+  const subcategoriasDisponiveis = useMemo(
+    () =>
+      categoriasFiltro.length === 0
+        ? subcategorias
+        : subcategorias.filter((s) => categoriasFiltro.includes(s.categoria_id)),
+    [subcategorias, categoriasFiltro]
+  )
 
   const mesesChaves = useMemo(() => mesesDoPeriodo(periodo), [periodo])
 
@@ -225,7 +261,7 @@ export default function DashboardPage() {
     let query = supabase
       .from('transacoes')
       .select(
-        'data, valor, tipo, escopo, dono_id, categorias(nome), contas(nome), cartoes_credito(nome)'
+        'data, valor, tipo, escopo, dono_id, categoria_id, subcategoria_id, categorias(nome), contas(nome), cartoes_credito(nome)'
       )
       // Só o que já foi efetivado: contas a pagar em aberto não são gasto realizado
       .eq('status', 'pago')
@@ -236,12 +272,14 @@ export default function DashboardPage() {
 
     if (escopoFiltro !== 'todos') query = query.eq('escopo', escopoFiltro)
     if (isAdmin && membroFiltro) query = query.eq('dono_id', membroFiltro)
+    if (categoriasFiltro.length > 0) query = query.in('categoria_id', categoriasFiltro)
+    if (subcategoriasFiltro.length > 0) query = query.in('subcategoria_id', subcategoriasFiltro)
 
     const { data, error } = await query
 
     if (!error && data) setTransacoes(data as unknown as TransacaoResumo[])
     setCarregando(false)
-  }, [mesesChaves, escopoFiltro, membroFiltro, isAdmin])
+  }, [mesesChaves, escopoFiltro, membroFiltro, isAdmin, categoriasFiltro, subcategoriasFiltro])
 
   useEffect(() => {
     // Busca de dados: o estado só muda depois do await da consulta, mas a regra
@@ -365,6 +403,21 @@ export default function DashboardPage() {
               </select>
             </div>
           )}
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <SeletorMultiplo
+            rotulo="Categoria"
+            opcoes={categorias}
+            selecionados={categoriasFiltro}
+            onChange={atualizarCategoriasFiltro}
+          />
+          <SeletorMultiplo
+            rotulo="Subcategoria"
+            opcoes={subcategoriasDisponiveis}
+            selecionados={subcategoriasFiltro}
+            onChange={setSubcategoriasFiltro}
+          />
         </div>
       </div>
 
