@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import Papa from 'papaparse'
 import readXlsxFile from 'read-excel-file/browser'
 import { supabase } from '@/lib/supabaseClient'
-import { dataBR, hojeISO, moeda } from '@/lib/formato'
+import { dataBR, hojeISO, moeda, somarMeses } from '@/lib/formato'
 import { parseData, parseValor } from '@/lib/parseExtrato'
 import { decodificarOfx, parsearOfx, type LancamentoOfx } from '@/lib/parseOfx'
 import { sugerirCategoria } from '@/lib/categorizarProduto'
@@ -13,6 +13,16 @@ import type { NotaFiscal } from '@/lib/parseNfce'
 type Categoria = { id: string; nome: string; tipo: string }
 type Subcategoria = { id: string; categoria_id: string; nome: string }
 type Formato = 'csv' | 'excel' | 'pdf' | 'ofx' | 'nfce'
+type MeioPagamento = 'dinheiro' | 'debito' | 'credito_vista' | 'credito_parcelado'
+type Conta = { id: string; nome: string }
+type Cartao = { id: string; nome: string }
+
+const ROTULO_MEIO_PAGAMENTO: Record<MeioPagamento, string> = {
+  dinheiro: 'Dinheiro',
+  debito: 'Débito',
+  credito_vista: 'Crédito à vista',
+  credito_parcelado: 'Crédito parcelado',
+}
 
 type LinhaImportada = {
   data: string
@@ -23,6 +33,27 @@ type LinhaImportada = {
   subcategoriaId: string
   escopo: string
   incluir: boolean
+}
+
+/**
+ * Divide o valor de um item em N parcelas mensais, com os centavos que
+ * sobram da divisão indo para a última — mesma lógica de lib/lancamentos,
+ * para que a soma das parcelas bata exatamente com o valor do item.
+ */
+function dividirEmParcelas(base: LinhaImportada, quantidade: number): LinhaImportada[] {
+  const totalCentavos = Math.round(base.valor * 100)
+  const porParcela = Math.floor(totalCentavos / quantidade)
+  const sobra = totalCentavos - porParcela * quantidade
+
+  return Array.from({ length: quantidade }, (_, i) => {
+    const centavos = i === quantidade - 1 ? porParcela + sobra : porParcela
+    return {
+      ...base,
+      data: somarMeses(base.data, i),
+      descricao: `${base.descricao} (${i + 1}/${quantidade})`,
+      valor: centavos / 100,
+    }
+  })
 }
 
 function celulaParaTexto(valor: unknown): string {
@@ -54,6 +85,12 @@ export default function ImportarPage() {
   const [colDescricao, setColDescricao] = useState('')
   const [colValor, setColValor] = useState('')
   const [bancoCartao, setBancoCartao] = useState('')
+  const [contas, setContas] = useState<Conta[]>([])
+  const [cartoes, setCartoes] = useState<Cartao[]>([])
+  const [meioPagamento, setMeioPagamento] = useState<MeioPagamento>('debito')
+  const [contaId, setContaId] = useState('')
+  const [cartaoId, setCartaoId] = useState('')
+  const [parcelasNfce, setParcelasNfce] = useState('2')
   const [tipoBatch, setTipoBatch] = useState('despesa')
   const [escopoBatch, setEscopoBatch] = useState('pessoal')
   const [linhas, setLinhas] = useState<LinhaImportada[]>([])
@@ -74,8 +111,17 @@ export default function ImportarPage() {
         .order('nome')
       if (data) setSubcategorias(data)
     }
+    async function carregarContasECartoes() {
+      const [{ data: cts }, { data: crts }] = await Promise.all([
+        supabase.from('contas').select('id, nome').eq('ativo', true).order('nome'),
+        supabase.from('cartoes_credito').select('id, nome').eq('ativo', true).order('nome'),
+      ])
+      if (cts) setContas(cts)
+      if (crts) setCartoes(crts)
+    }
     carregarCategorias()
     carregarSubcategorias()
+    carregarContasECartoes()
   }, [])
 
   async function handleArquivo(e: React.ChangeEvent<HTMLInputElement>) {
@@ -238,7 +284,10 @@ export default function ImportarPage() {
     if (formato === 'nfce') {
       // Nota fiscal só tem despesa; a categoria é um chute pelo nome do
       // produto, sempre revisável na tela seguinte antes de salvar
-      processadas = (notaFiscal?.itens ?? []).map((item) => {
+      const quantidadeParcelas =
+        meioPagamento === 'credito_parcelado' ? Math.max(2, parseInt(parcelasNfce || '2', 10)) : 1
+
+      processadas = (notaFiscal?.itens ?? []).flatMap((item) => {
         const sugestao = sugerirCategoria(item.descricao)
         const categoriaSugerida = sugestao
           ? categorias.find(
@@ -253,7 +302,7 @@ export default function ImportarPage() {
                   s.nome.toLowerCase() === sugestao.subcategoria.toLowerCase()
               )
             : undefined
-        return {
+        const base: LinhaImportada = {
           data: notaFiscal?.dataEmissao || hojeISO(),
           descricao: item.descricao,
           valor: item.valorTotal,
@@ -263,6 +312,7 @@ export default function ImportarPage() {
           escopo: escopoBatch,
           incluir: true,
         }
+        return quantidadeParcelas > 1 ? dividirEmParcelas(base, quantidadeParcelas) : [base]
       })
     } else if (formato === 'ofx') {
       // O OFX traz receitas e despesas no mesmo arquivo: o sinal do valor decide
@@ -341,6 +391,14 @@ export default function ImportarPage() {
     const { data: userData } = await supabase.auth.getUser()
     const userId = userData.user?.id
 
+    const ehNfce = formato === 'nfce'
+    const contaParaSalvar = ehNfce && meioPagamento === 'debito' ? contaId || null : null
+    const cartaoParaSalvar =
+      ehNfce && (meioPagamento === 'credito_vista' || meioPagamento === 'credito_parcelado')
+        ? cartaoId || null
+        : null
+    const bancoCartaoParaSalvar = ehNfce ? ROTULO_MEIO_PAGAMENTO[meioPagamento] : bancoCartao || null
+
     const linhasParaSalvar = linhas
       .filter((l) => l.incluir)
       .map((l) => ({
@@ -351,7 +409,9 @@ export default function ImportarPage() {
         valor: l.valor,
         tipo: l.tipo,
         escopo: l.escopo,
-        banco_cartao: bancoCartao || null,
+        banco_cartao: bancoCartaoParaSalvar,
+        conta_id: contaParaSalvar,
+        cartao_id: cartaoParaSalvar,
         dono_id: userId,
         lancado_por: userId,
       }))
@@ -378,6 +438,10 @@ export default function ImportarPage() {
     setLinhasPdf([])
     setLinhasOfx([])
     setNotaFiscal(null)
+    setMeioPagamento('debito')
+    setContaId('')
+    setCartaoId('')
+    setParcelasNfce('2')
   }
 
   const categoriasFiltradas = categorias.filter((c) => c.tipo === tipoBatch)
@@ -386,9 +450,16 @@ export default function ImportarPage() {
     (s) => s.categoria_id === categoriaEmMassa
   )
 
+  const meioPagamentoValido =
+    meioPagamento === 'dinheiro'
+      ? true
+      : meioPagamento === 'debito'
+        ? !!contaId
+        : !!cartaoId
+
   const podeContinuarMapeamento =
     formato === 'nfce'
-      ? (notaFiscal?.itens.length ?? 0) > 0
+      ? (notaFiscal?.itens.length ?? 0) > 0 && meioPagamentoValido
       : formato === 'ofx'
         ? linhasOfx.length > 0
         : formato === 'pdf'
@@ -523,14 +594,88 @@ export default function ImportarPage() {
               </>
             )}
 
-            <label className="mb-1 block text-sm text-gray-600">Banco / Cartão</label>
-            <input
-              type="text"
-              value={bancoCartao}
-              onChange={(e) => setBancoCartao(e.target.value)}
-              placeholder="Ex: Itaú, Nubank"
-              className="mb-4 w-full rounded border border-gray-300 px-3 py-2"
-            />
+            {formato === 'nfce' ? (
+              <div className="mb-4">
+                <label className="mb-1 block text-sm text-gray-600">Meio de pagamento</label>
+                <div className="mb-3 grid grid-cols-2 gap-2">
+                  {(Object.keys(ROTULO_MEIO_PAGAMENTO) as MeioPagamento[]).map((mp) => (
+                    <button
+                      key={mp}
+                      type="button"
+                      onClick={() => setMeioPagamento(mp)}
+                      className={`rounded border px-3 py-2 text-sm font-medium ${
+                        meioPagamento === mp
+                          ? 'border-blue-600 bg-blue-600 text-white'
+                          : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+                      }`}
+                    >
+                      {ROTULO_MEIO_PAGAMENTO[mp]}
+                    </button>
+                  ))}
+                </div>
+
+                {meioPagamento === 'debito' && (
+                  <select
+                    value={contaId}
+                    onChange={(e) => setContaId(e.target.value)}
+                    className="w-full rounded border border-gray-300 px-3 py-2"
+                  >
+                    <option value="">Selecione a conta...</option>
+                    {contas.map((c) => (
+                      <option key={c.id} value={c.id}>{c.nome}</option>
+                    ))}
+                  </select>
+                )}
+
+                {(meioPagamento === 'credito_vista' || meioPagamento === 'credito_parcelado') && (
+                  <>
+                    <select
+                      value={cartaoId}
+                      onChange={(e) => setCartaoId(e.target.value)}
+                      className="w-full rounded border border-gray-300 px-3 py-2"
+                    >
+                      <option value="">Selecione o cartão...</option>
+                      {cartoes.map((c) => (
+                        <option key={c.id} value={c.id}>{c.nome}</option>
+                      ))}
+                    </select>
+
+                    {meioPagamento === 'credito_parcelado' && (
+                      <div className="mt-3">
+                        <label className="mb-1 block text-sm text-gray-600">Número de parcelas</label>
+                        <input
+                          type="number"
+                          min="2"
+                          max="24"
+                          value={parcelasNfce}
+                          onChange={(e) => setParcelasNfce(e.target.value)}
+                          className="w-full rounded border border-gray-300 px-3 py-2"
+                        />
+                        <p className="mt-1.5 text-xs text-gray-500">
+                          Cada um dos {notaFiscal?.itens.length ?? 0} itens vira{' '}
+                          {Math.max(2, parseInt(parcelasNfce || '2', 10))} lançamentos mensais — um
+                          total de{' '}
+                          {(notaFiscal?.itens.length ?? 0) *
+                            Math.max(2, parseInt(parcelasNfce || '2', 10))}{' '}
+                          lançamentos, um por mês, com o valor de cada item dividido.
+                        </p>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            ) : (
+              <>
+                <label className="mb-1 block text-sm text-gray-600">Banco / Cartão</label>
+                <input
+                  type="text"
+                  value={bancoCartao}
+                  onChange={(e) => setBancoCartao(e.target.value)}
+                  placeholder="Ex: Itaú, Nubank"
+                  className="mb-4 w-full rounded border border-gray-300 px-3 py-2"
+                />
+              </>
+            )}
 
             {formato !== 'ofx' && formato !== 'nfce' && (
               <>
