@@ -4,12 +4,15 @@ import { useEffect, useState } from 'react'
 import Papa from 'papaparse'
 import readXlsxFile from 'read-excel-file/browser'
 import { supabase } from '@/lib/supabaseClient'
+import { dataBR, hojeISO, moeda } from '@/lib/formato'
 import { parseData, parseValor } from '@/lib/parseExtrato'
 import { decodificarOfx, parsearOfx, type LancamentoOfx } from '@/lib/parseOfx'
+import { sugerirCategoria } from '@/lib/categorizarProduto'
+import type { NotaFiscal } from '@/lib/parseNfce'
 
 type Categoria = { id: string; nome: string; tipo: string }
 type Subcategoria = { id: string; categoria_id: string; nome: string }
-type Formato = 'csv' | 'excel' | 'pdf' | 'ofx'
+type Formato = 'csv' | 'excel' | 'pdf' | 'ofx' | 'nfce'
 
 type LinhaImportada = {
   data: string
@@ -42,6 +45,7 @@ export default function ImportarPage() {
   const [colunas, setColunas] = useState<string[]>([])
   const [linhasPdf, setLinhasPdf] = useState<{ data: string; descricao: string; valor: number }[]>([])
   const [linhasOfx, setLinhasOfx] = useState<LancamentoOfx[]>([])
+  const [notaFiscal, setNotaFiscal] = useState<NotaFiscal | null>(null)
   const [processandoArquivo, setProcessandoArquivo] = useState(false)
   const [arquivoPdf, setArquivoPdf] = useState<File | null>(null)
   const [pdfPrecisaSenha, setPdfPrecisaSenha] = useState(false)
@@ -148,7 +152,46 @@ export default function ImportarPage() {
       return
     }
 
-    setMensagem('Formato não suportado. Envie um arquivo CSV, Excel (.xlsx/.xls), PDF ou OFX.')
+    if (arquivo.type.startsWith('image/') || /\.(jpe?g|png|webp|heic)$/i.test(nome)) {
+      setFormato('nfce')
+      await enviarNfce(arquivo)
+      return
+    }
+
+    setMensagem(
+      'Formato não suportado. Envie um arquivo CSV, Excel (.xlsx/.xls), PDF, OFX ou uma foto de nota fiscal.'
+    )
+  }
+
+  async function enviarNfce(arquivo: File) {
+    setProcessandoArquivo(true)
+    setMensagem('')
+    try {
+      const { data: sessionData } = await supabase.auth.getSession()
+      const token = sessionData.session?.access_token
+
+      const corpo = new FormData()
+      corpo.append('arquivo', arquivo)
+
+      const resposta = await fetch('/api/importar-nfce', {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        body: corpo,
+      })
+      const resultado = await resposta.json()
+
+      if (!resposta.ok) {
+        setMensagem(resultado.error || 'Não foi possível ler esta nota fiscal.')
+      } else {
+        setNotaFiscal(resultado.nota)
+        if (resultado.nota.formaPagamento) setBancoCartao(resultado.nota.formaPagamento)
+        setEtapa('mapear')
+      }
+    } catch (err) {
+      console.error('Falha ao ler nota fiscal:', err)
+      setMensagem('Não foi possível ler esta nota fiscal. Tente novamente.')
+    }
+    setProcessandoArquivo(false)
   }
 
   async function enviarPdf(arquivo: File, senha: string) {
@@ -192,7 +235,36 @@ export default function ImportarPage() {
   function processarMapeamento() {
     let processadas: LinhaImportada[]
 
-    if (formato === 'ofx') {
+    if (formato === 'nfce') {
+      // Nota fiscal só tem despesa; a categoria é um chute pelo nome do
+      // produto, sempre revisável na tela seguinte antes de salvar
+      processadas = (notaFiscal?.itens ?? []).map((item) => {
+        const sugestao = sugerirCategoria(item.descricao)
+        const categoriaSugerida = sugestao
+          ? categorias.find(
+              (c) => c.tipo === 'despesa' && c.nome.toLowerCase() === sugestao.categoria.toLowerCase()
+            )
+          : undefined
+        const subcategoriaSugerida =
+          categoriaSugerida && sugestao
+            ? subcategorias.find(
+                (s) =>
+                  s.categoria_id === categoriaSugerida.id &&
+                  s.nome.toLowerCase() === sugestao.subcategoria.toLowerCase()
+              )
+            : undefined
+        return {
+          data: notaFiscal?.dataEmissao || hojeISO(),
+          descricao: item.descricao,
+          valor: item.valorTotal,
+          tipo: 'despesa',
+          categoriaId: categoriaSugerida?.id ?? '',
+          subcategoriaId: subcategoriaSugerida?.id ?? '',
+          escopo: escopoBatch,
+          incluir: true,
+        }
+      })
+    } else if (formato === 'ofx') {
       // O OFX traz receitas e despesas no mesmo arquivo: o sinal do valor decide
       processadas = linhasOfx.map((l) => ({
         data: l.data,
@@ -305,6 +377,7 @@ export default function ImportarPage() {
     setLinhasBrutas([])
     setLinhasPdf([])
     setLinhasOfx([])
+    setNotaFiscal(null)
   }
 
   const categoriasFiltradas = categorias.filter((c) => c.tipo === tipoBatch)
@@ -314,11 +387,13 @@ export default function ImportarPage() {
   )
 
   const podeContinuarMapeamento =
-    formato === 'ofx'
-      ? linhasOfx.length > 0
-      : formato === 'pdf'
-        ? linhasPdf.length > 0
-        : !!colData && !!colDescricao && !!colValor
+    formato === 'nfce'
+      ? (notaFiscal?.itens.length ?? 0) > 0
+      : formato === 'ofx'
+        ? linhasOfx.length > 0
+        : formato === 'pdf'
+          ? linhasPdf.length > 0
+          : !!colData && !!colDescricao && !!colValor
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
@@ -328,11 +403,12 @@ export default function ImportarPage() {
         {etapa === 'upload' && (
           <div className="rounded-lg bg-white p-6 shadow-sm">
             <label className="mb-2 block text-sm text-gray-600">
-              Selecione o arquivo do extrato (CSV, Excel, PDF ou OFX)
+              Selecione o arquivo do extrato (CSV, Excel, PDF, OFX) ou uma foto de nota fiscal
+              (o site lê o QR Code)
             </label>
             <input
               type="file"
-              accept=".csv,.xlsx,.xls,.pdf,.ofx"
+              accept=".csv,.xlsx,.xls,.pdf,.ofx,image/*"
               onChange={handleArquivo}
               disabled={processandoArquivo}
             />
@@ -366,7 +442,30 @@ export default function ImportarPage() {
 
         {etapa === 'mapear' && (
           <div className="rounded-lg bg-white p-6 shadow-sm">
-            {formato === 'ofx' ? (
+            {formato === 'nfce' ? (
+              <div className="mb-4 text-sm text-gray-600">
+                <p>
+                  Nota de <strong>{notaFiscal?.loja ?? 'loja não identificada'}</strong>
+                  {notaFiscal?.dataEmissao ? `, emitida em ${dataBR(notaFiscal.dataEmissao)}` : ''}.
+                </p>
+                <p className="mt-1">
+                  {notaFiscal?.itens.length ?? 0} itens · Valor dos itens:{' '}
+                  {moeda(notaFiscal?.valorTotal ?? 0)}
+                  {notaFiscal?.desconto ? (
+                    <>
+                      {' '}
+                      · Desconto de {moeda(notaFiscal.desconto)} (valor pago:{' '}
+                      {moeda(notaFiscal.valorPago ?? 0)}) — os itens abaixo mantêm o valor de
+                      tabela impresso na nota, sem desconto aplicado.
+                    </>
+                  ) : null}
+                </p>
+                <p className="mt-1 text-xs text-gray-500">
+                  Categoria e subcategoria já vêm sugeridas pelo nome do produto — confira e ajuste
+                  o que precisar na próxima etapa.
+                </p>
+              </div>
+            ) : formato === 'ofx' ? (
               <p className="mb-4 text-sm text-gray-600">
                 Encontramos {linhasOfx.length} lançamentos neste OFX. O arquivo já indica o que é
                 entrada e o que é saída, então não é preciso mapear colunas.
@@ -384,7 +483,7 @@ export default function ImportarPage() {
               </p>
             )}
 
-            {formato !== 'pdf' && formato !== 'ofx' && (
+            {formato !== 'pdf' && formato !== 'ofx' && formato !== 'nfce' && (
               <>
                 <label className="mb-1 block text-sm text-gray-600">Coluna de Data</label>
                 <select
@@ -433,7 +532,7 @@ export default function ImportarPage() {
               className="mb-4 w-full rounded border border-gray-300 px-3 py-2"
             />
 
-            {formato !== 'ofx' && (
+            {formato !== 'ofx' && formato !== 'nfce' && (
               <>
                 <label className="mb-1 block text-sm text-gray-600">Tipo (todas as linhas)</label>
                 <select
@@ -513,8 +612,8 @@ export default function ImportarPage() {
               </button>
             </div>
 
-            <div className="mb-4 max-h-[500px] overflow-y-auto rounded border border-gray-200">
-              <table className="w-full text-sm">
+            <div className="mb-4 max-h-[500px] overflow-auto rounded border border-gray-200">
+              <table className="w-full min-w-[760px] text-sm">
                 <thead className="sticky top-0 bg-gray-100">
                   <tr>
                     <th className="p-2 text-left">Incluir</th>
