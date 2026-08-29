@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import {
   chaveMes,
@@ -10,8 +10,18 @@ import {
   moeda,
   rotuloMesLongo,
 } from '@/lib/formato'
-import { IconeSeta } from '@/components/Icones'
-import { CabecalhoPagina, Campo, EstadoVazio, Pagina, classeInput } from '@/components/ui'
+import { decodificarOfx, parsearOfx, type LancamentoOfx } from '@/lib/parseOfx'
+import { IconeImportar, IconeSeta } from '@/components/Icones'
+import {
+  BotaoPrimario,
+  BotaoSecundario,
+  CabecalhoPagina,
+  Campo,
+  EstadoVazio,
+  Mensagem,
+  Pagina,
+  classeInput,
+} from '@/components/ui'
 
 type Conta = { id: string; nome: string; cor: string | null; saldo_inicial: number }
 
@@ -25,6 +35,52 @@ type Movimento = {
   categorias: { nome: string } | null
 }
 
+type Categoria = { id: string; nome: string; tipo: string }
+type Subcategoria = { id: string; categoria_id: string; nome: string }
+
+type ItemConciliacao = {
+  chave: string
+  data: string
+  descricao: string
+  valor: number
+  tipo: 'receita' | 'despesa'
+  transacaoId: string | null
+}
+
+type ExistenteParaConciliar = { id: string; data: string; valor: number; tipo: string }
+
+/**
+ * Casa cada linha do extrato importado com um lançamento já cadastrado na
+ * conta (mesma data, mesmo valor, mesmo tipo). Um lançamento já usado não
+ * é reaproveitado para casar com uma segunda linha do extrato.
+ */
+function conciliarComExistentes(
+  itensOfx: LancamentoOfx[],
+  existentes: ExistenteParaConciliar[]
+): ItemConciliacao[] {
+  const usados = new Set<string>()
+  return itensOfx.map((item, indice) => {
+    const encontrado = existentes.find(
+      (e) =>
+        !usados.has(e.id) &&
+        e.data === item.data &&
+        e.tipo === item.tipo &&
+        Math.abs(Number(e.valor) - item.valor) < 0.005
+    )
+    if (encontrado) usados.add(encontrado.id)
+    return {
+      chave: item.idBanco || `${item.data}-${item.valor}-${item.tipo}-${indice}`,
+      data: item.data,
+      descricao: item.descricao,
+      valor: item.valor,
+      tipo: item.tipo,
+      transacaoId: encontrado?.id ?? null,
+    }
+  })
+}
+
+const FORM_LANCAMENTO_VAZIO = { descricao: '', categoria_id: '', subcategoria_id: '', escopo: 'pessoal' }
+
 export default function ExtratoPage() {
   const [contas, setContas] = useState<Conta[]>([])
   const [contaId, setContaId] = useState('')
@@ -33,20 +89,36 @@ export default function ExtratoPage() {
   const [saldoAnterior, setSaldoAnterior] = useState(0)
   const [carregando, setCarregando] = useState(true)
 
+  const [categorias, setCategorias] = useState<Categoria[]>([])
+  const [subcategorias, setSubcategorias] = useState<Subcategoria[]>([])
+  const [userId, setUserId] = useState('')
+
+  const [itensConciliacao, setItensConciliacao] = useState<ItemConciliacao[] | null>(null)
+  const [importando, setImportando] = useState(false)
+  const [mensagemConciliacao, setMensagemConciliacao] = useState('')
+  const [linhaAberta, setLinhaAberta] = useState<string | null>(null)
+  const [formLancamento, setFormLancamento] = useState(FORM_LANCAMENTO_VAZIO)
+  const [salvandoLinha, setSalvandoLinha] = useState(false)
+  const inputArquivoRef = useRef<HTMLInputElement>(null)
+
   useEffect(() => {
-    async function carregarContas() {
-      const { data } = await supabase
-        .from('contas')
-        .select('id, nome, cor, saldo_inicial')
-        .order('nome')
-      const lista = (data ?? []) as Conta[]
+    async function carregarListasBase() {
+      const { data: userData } = await supabase.auth.getUser()
+      if (userData.user?.id) setUserId(userData.user.id)
+
+      const [{ data: cts }, { data: cats }, { data: subs }] = await Promise.all([
+        supabase.from('contas').select('id, nome, cor, saldo_inicial').order('nome'),
+        supabase.from('categorias').select('id, nome, tipo').order('nome'),
+        supabase.from('subcategorias').select('id, categoria_id, nome').order('nome'),
+      ])
+      const lista = (cts ?? []) as Conta[]
       setContas(lista)
-      if (lista.length && !contaId) setContaId(lista[0].id)
-      if (!lista.length) setCarregando(false)
+      setCategorias((cats ?? []) as Categoria[])
+      setSubcategorias((subs ?? []) as Subcategoria[])
+      if (lista.length) setContaId((atual) => atual || lista[0].id)
+      else setCarregando(false)
     }
-    carregarContas()
-    // contaId de propósito fora das dependências: só define o padrão na 1ª carga
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    carregarListasBase()
   }, [])
 
   const carregar = useCallback(async () => {
@@ -90,6 +162,14 @@ export default function ExtratoPage() {
     carregar()
   }, [carregar])
 
+  function trocarConta(novaContaId: string) {
+    setContaId(novaContaId)
+    // O extrato importado é específico da conta anterior, não faz mais sentido aqui
+    setItensConciliacao(null)
+    setMensagemConciliacao('')
+    setLinhaAberta(null)
+  }
+
   // Saldo corrente linha a linha, como num extrato bancário
   const linhas = useMemo(() => {
     const resultado: (Movimento & { saldoApos: number })[] = []
@@ -109,11 +189,127 @@ export default function ExtratoPage() {
     .reduce((s, m) => s + Number(m.valor), 0)
   const saldoFinal = saldoAnterior + entradas - saidas
 
+  async function handleArquivo(e: React.ChangeEvent<HTMLInputElement>) {
+    const arquivo = e.target.files?.[0]
+    e.target.value = ''
+    if (!arquivo || !contaId) return
+
+    setImportando(true)
+    setMensagemConciliacao('')
+    setLinhaAberta(null)
+
+    try {
+      const buffer = await arquivo.arrayBuffer()
+      const itensOfx = parsearOfx(decodificarOfx(buffer))
+
+      if (itensOfx.length === 0) {
+        setItensConciliacao(null)
+        setMensagemConciliacao('Nenhum lançamento encontrado neste arquivo.')
+        setImportando(false)
+        return
+      }
+
+      const datas = itensOfx.map((i) => i.data).sort()
+      const { data: existentes, error } = await supabase
+        .from('transacoes')
+        .select('id, data, valor, tipo')
+        .eq('conta_id', contaId)
+        .eq('status', 'pago')
+        .gte('data', datas[0])
+        .lte('data', datas[datas.length - 1])
+
+      if (error) {
+        setMensagemConciliacao('Erro ao conciliar: ' + error.message)
+        setImportando(false)
+        return
+      }
+
+      const itens = conciliarComExistentes(itensOfx, (existentes ?? []) as ExistenteParaConciliar[])
+      itens.sort((a, b) => a.data.localeCompare(b.data))
+      setItensConciliacao(itens)
+    } catch (err) {
+      console.error('Falha ao ler extrato:', err)
+      setMensagemConciliacao('Não foi possível ler este arquivo. Confira se é um OFX válido.')
+    }
+    setImportando(false)
+  }
+
+  function abrirSalvarLinha(item: ItemConciliacao) {
+    setLinhaAberta(item.chave)
+    setFormLancamento({ ...FORM_LANCAMENTO_VAZIO, descricao: item.descricao })
+    setMensagemConciliacao('')
+  }
+
+  function cancelarSalvarLinha() {
+    setLinhaAberta(null)
+    setFormLancamento(FORM_LANCAMENTO_VAZIO)
+  }
+
+  async function salvarLinhaComoLancamento(item: ItemConciliacao) {
+    setSalvandoLinha(true)
+    setMensagemConciliacao('')
+
+    const { error, data } = await supabase
+      .from('transacoes')
+      .insert({
+        data: item.data,
+        descricao: formLancamento.descricao,
+        categoria_id: formLancamento.categoria_id || null,
+        subcategoria_id: formLancamento.subcategoria_id || null,
+        valor: item.valor,
+        tipo: item.tipo,
+        escopo: formLancamento.escopo,
+        conta_id: contaId,
+        status: 'pago',
+        dono_id: userId,
+        lancado_por: userId,
+      })
+      .select('id')
+      .single()
+
+    setSalvandoLinha(false)
+    if (error) {
+      setMensagemConciliacao('Erro ao salvar: ' + error.message)
+      return
+    }
+
+    setItensConciliacao((atual) =>
+      (atual ?? []).map((i) => (i.chave === item.chave ? { ...i, transacaoId: data.id } : i))
+    )
+    cancelarSalvarLinha()
+    carregar()
+  }
+
+  const conta = contas.find((c) => c.id === contaId)
+  const totalConciliado = itensConciliacao?.filter((i) => i.transacaoId).length ?? 0
+
+  const categoriasDaLinha = (tipoLinha: string) =>
+    categorias.filter((c) => c.tipo === tipoLinha)
+  const subcategoriasDaLinha = subcategorias.filter(
+    (s) => s.categoria_id === formLancamento.categoria_id
+  )
+
   return (
     <Pagina>
       <CabecalhoPagina
         titulo="Extrato de Contas"
         descricao="Movimentações de uma conta, com saldo acumulado linha a linha."
+        acao={
+          contas.length > 0 ? (
+            <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-borda bg-superficie px-4 py-2.5 text-sm font-semibold text-texto transition-colors hover:bg-fundo">
+              <IconeImportar className="h-4 w-4" />
+              {importando ? 'Lendo arquivo...' : 'Importar extrato'}
+              <input
+                ref={inputArquivoRef}
+                type="file"
+                accept=".ofx"
+                className="hidden"
+                disabled={importando}
+                onChange={handleArquivo}
+              />
+            </label>
+          ) : undefined
+        }
       />
 
       {contas.length === 0 && !carregando ? (
@@ -136,7 +332,7 @@ export default function ExtratoPage() {
               <select
                 className={classeInput}
                 value={contaId}
-                onChange={(e) => setContaId(e.target.value)}
+                onChange={(e) => trocarConta(e.target.value)}
               >
                 {contas.map((c) => (
                   <option key={c.id} value={c.id}>
@@ -167,6 +363,167 @@ export default function ExtratoPage() {
               </div>
             </div>
           </div>
+
+          <Mensagem texto={mensagemConciliacao} />
+
+          {/* Conciliação do extrato importado */}
+          {itensConciliacao && (
+            <div className="cartao mb-6 overflow-hidden">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-borda bg-fundo/60 px-4 py-3">
+                <div>
+                  <p className="text-sm font-semibold text-texto">
+                    Conciliação do extrato importado — {conta?.nome}
+                  </p>
+                  <p className="text-xs text-texto-suave">
+                    {totalConciliado} de {itensConciliacao.length} lançamentos já conciliados
+                  </p>
+                </div>
+                <button
+                  onClick={() => setItensConciliacao(null)}
+                  className="text-xs font-medium text-texto-suave hover:underline"
+                >
+                  Fechar
+                </button>
+              </div>
+
+              <ul className="divide-y divide-borda">
+                {itensConciliacao.map((item) => {
+                  const receita = item.tipo === 'receita'
+                  const conciliado = !!item.transacaoId
+                  const aberta = linhaAberta === item.chave
+
+                  if (aberta) {
+                    return (
+                      <li key={item.chave} className="px-4 py-4">
+                        <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+                          <p className="text-sm text-texto-suave">
+                            {dataBR(item.data)} ·{' '}
+                            <span className={receita ? 'text-receita' : 'text-despesa'}>
+                              {receita ? '+' : '−'} {moeda(item.valor)}
+                            </span>
+                          </p>
+                        </div>
+                        <div className="space-y-3">
+                          <Campo rotulo="Descrição">
+                            <input
+                              className={classeInput}
+                              value={formLancamento.descricao}
+                              onChange={(e) =>
+                                setFormLancamento({ ...formLancamento, descricao: e.target.value })
+                              }
+                              required
+                            />
+                          </Campo>
+
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            <Campo rotulo="Categoria">
+                              <select
+                                className={classeInput}
+                                value={formLancamento.categoria_id}
+                                onChange={(e) =>
+                                  setFormLancamento({
+                                    ...formLancamento,
+                                    categoria_id: e.target.value,
+                                    subcategoria_id: '',
+                                  })
+                                }
+                              >
+                                <option value="">Sem categoria</option>
+                                {categoriasDaLinha(item.tipo).map((c) => (
+                                  <option key={c.id} value={c.id}>
+                                    {c.nome}
+                                  </option>
+                                ))}
+                              </select>
+                            </Campo>
+                            <Campo rotulo="Subcategoria">
+                              <select
+                                className={classeInput}
+                                value={formLancamento.subcategoria_id}
+                                onChange={(e) =>
+                                  setFormLancamento({
+                                    ...formLancamento,
+                                    subcategoria_id: e.target.value,
+                                  })
+                                }
+                                disabled={!formLancamento.categoria_id}
+                              >
+                                <option value="">Nenhuma</option>
+                                {subcategoriasDaLinha.map((s) => (
+                                  <option key={s.id} value={s.id}>
+                                    {s.nome}
+                                  </option>
+                                ))}
+                              </select>
+                            </Campo>
+                          </div>
+
+                          <Campo rotulo="Este lançamento é...">
+                            <select
+                              className={classeInput}
+                              value={formLancamento.escopo}
+                              onChange={(e) =>
+                                setFormLancamento({ ...formLancamento, escopo: e.target.value })
+                              }
+                            >
+                              <option value="familiar">Familiar (todos veem)</option>
+                              <option value="pessoal">Pessoal (só eu vejo)</option>
+                            </select>
+                          </Campo>
+
+                          <div className="flex justify-end gap-2 border-t border-borda pt-3">
+                            <BotaoSecundario type="button" onClick={cancelarSalvarLinha}>
+                              Cancelar
+                            </BotaoSecundario>
+                            <BotaoPrimario
+                              type="button"
+                              disabled={salvandoLinha}
+                              onClick={() => salvarLinhaComoLancamento(item)}
+                            >
+                              {salvandoLinha ? 'Salvando...' : 'Salvar lançamento'}
+                            </BotaoPrimario>
+                          </div>
+                        </div>
+                      </li>
+                    )
+                  }
+
+                  return (
+                    <li
+                      key={item.chave}
+                      className="flex items-center justify-between gap-3 px-4 py-3"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm text-texto">{item.descricao}</p>
+                        <p className="text-xs text-texto-suave">{dataBR(item.data)}</p>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-3">
+                        <span
+                          className={`whitespace-nowrap text-sm font-semibold ${
+                            receita ? 'text-receita' : 'text-despesa'
+                          }`}
+                        >
+                          {receita ? '+' : '−'} {moeda(item.valor)}
+                        </span>
+                        {conciliado ? (
+                          <span className="whitespace-nowrap rounded bg-primaria/10 px-2 py-1 text-xs font-medium text-primaria">
+                            Conciliado
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => abrirSalvarLinha(item)}
+                            className="whitespace-nowrap text-xs font-medium text-alerta hover:underline"
+                          >
+                            Salvar como lançamento
+                          </button>
+                        )}
+                      </div>
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          )}
 
           {/* Resumo do período */}
           <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
