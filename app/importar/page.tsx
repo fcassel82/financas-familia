@@ -9,6 +9,16 @@ import { parseData, parseValor } from '@/lib/parseExtrato'
 import { decodificarOfx, parsearOfx, type LancamentoOfx } from '@/lib/parseOfx'
 import { sugerirCategoria } from '@/lib/categorizarProduto'
 import type { NotaFiscal } from '@/lib/parseNfce'
+import { IconeImportar } from '@/components/Icones'
+import {
+  BotaoPrimario,
+  BotaoSecundario,
+  CabecalhoPagina,
+  Campo,
+  Mensagem,
+  Pagina,
+  classeInput,
+} from '@/components/ui'
 
 type Categoria = { id: string; nome: string; tipo: string }
 type Subcategoria = { id: string; categoria_id: string; nome: string }
@@ -66,6 +76,13 @@ function celulaParaTexto(valor: unknown): string {
   }
   return String(valor)
 }
+
+const classeBotaoOpcao = (ativo: boolean) =>
+  `rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+    ativo
+      ? 'border-primaria bg-primaria text-white'
+      : 'border-borda bg-superficie text-texto-suave hover:bg-fundo'
+  }`
 
 export default function ImportarPage() {
   const [etapa, setEtapa] = useState<'upload' | 'mapear' | 'revisar'>('upload')
@@ -467,313 +484,406 @@ export default function ImportarPage() {
           : !!colData && !!colDescricao && !!colValor
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      <div className="mx-auto max-w-4xl">
-        <h1 className="mb-6 text-xl font-semibold text-gray-800">Importar Extrato</h1>
+    <Pagina>
+      <CabecalhoPagina
+        titulo="Importar Extrato"
+        descricao="CSV, Excel, PDF, OFX ou uma foto de nota fiscal (o site lê o QR Code)."
+      />
 
-        {etapa === 'upload' && (
-          <div className="rounded-lg bg-white p-6 shadow-sm">
-            <label className="mb-2 block text-sm text-gray-600">
-              Selecione o arquivo do extrato (CSV, Excel, PDF, OFX) ou uma foto de nota fiscal
-              (o site lê o QR Code)
-            </label>
+      {etapa === 'upload' && (
+        <div className="cartao space-y-4 p-4 sm:p-6">
+          <p className="text-sm text-texto-suave">
+            Selecione o arquivo do extrato ou a foto de um cupom fiscal para começar.
+          </p>
+
+          <label className="inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg bg-primaria px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-primaria-escura disabled:opacity-50 sm:w-auto">
+            <IconeImportar className="h-4 w-4" />
+            {processandoArquivo ? 'Lendo arquivo...' : 'Selecionar arquivo'}
             <input
               type="file"
               accept=".csv,.xlsx,.xls,.pdf,.ofx,image/*"
               onChange={handleArquivo}
               disabled={processandoArquivo}
+              className="hidden"
             />
-            {processandoArquivo && (
-              <p className="mt-3 text-sm text-gray-500">Lendo arquivo...</p>
-            )}
-            {mensagem && <p className="mt-3 text-sm text-red-600">{mensagem}</p>}
+          </label>
 
-            {pdfPrecisaSenha && (
-              <div className="mt-3 flex items-end gap-2">
-                <div className="flex-1">
-                  <label className="mb-1 block text-sm text-gray-600">Senha do PDF</label>
+          <Mensagem texto={mensagem} />
+
+          {pdfPrecisaSenha && (
+            <div className="flex flex-col gap-2 border-t border-borda pt-4 sm:flex-row sm:items-end">
+              <div className="flex-1">
+                <Campo rotulo="Senha do PDF">
                   <input
                     type="password"
                     value={senhaPdf}
                     onChange={(e) => setSenhaPdf(e.target.value)}
-                    className="w-full rounded border border-gray-300 px-3 py-2"
+                    className={classeInput}
                   />
-                </div>
-                <button
-                  onClick={tentarSenhaPdf}
-                  disabled={!senhaPdf || processandoArquivo}
-                  className="rounded bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
-                >
-                  Tentar
-                </button>
+                </Campo>
               </div>
-            )}
-          </div>
-        )}
+              <BotaoPrimario onClick={tentarSenhaPdf} disabled={!senhaPdf || processandoArquivo}>
+                Tentar
+              </BotaoPrimario>
+            </div>
+          )}
+        </div>
+      )}
 
-        {etapa === 'mapear' && (
-          <div className="rounded-lg bg-white p-6 shadow-sm">
-            {formato === 'nfce' ? (
-              <div className="mb-4 text-sm text-gray-600">
-                <p>
-                  Nota de <strong>{notaFiscal?.loja ?? 'loja não identificada'}</strong>
-                  {notaFiscal?.dataEmissao ? `, emitida em ${dataBR(notaFiscal.dataEmissao)}` : ''}.
-                </p>
-                <p className="mt-1">
-                  {notaFiscal?.itens.length ?? 0} itens · Valor dos itens:{' '}
-                  {moeda(notaFiscal?.valorTotal ?? 0)}
-                  {notaFiscal?.desconto ? (
-                    <>
-                      {' '}
-                      · Desconto de {moeda(notaFiscal.desconto)} (valor pago:{' '}
-                      {moeda(notaFiscal.valorPago ?? 0)}) — os itens abaixo mantêm o valor de
-                      tabela impresso na nota, sem desconto aplicado.
-                    </>
-                  ) : null}
-                </p>
-                <p className="mt-1 text-xs text-gray-500">
-                  Categoria e subcategoria já vêm sugeridas pelo nome do produto — confira e ajuste
-                  o que precisar na próxima etapa.
-                </p>
-              </div>
-            ) : formato === 'ofx' ? (
-              <p className="mb-4 text-sm text-gray-600">
-                Encontramos {linhasOfx.length} lançamentos neste OFX. O arquivo já indica o que é
-                entrada e o que é saída, então não é preciso mapear colunas.
+      {etapa === 'mapear' && (
+        <div className="cartao space-y-4 p-4 sm:p-6">
+          {formato === 'nfce' ? (
+            <div className="text-sm text-texto-suave">
+              <p>
+                Nota de <strong className="text-texto">{notaFiscal?.loja ?? 'loja não identificada'}</strong>
+                {notaFiscal?.dataEmissao ? `, emitida em ${dataBR(notaFiscal.dataEmissao)}` : ''}.
               </p>
-            ) : formato === 'pdf' ? (
-              <p className="mb-4 text-sm text-gray-600">
-                Detectamos {linhasPdf.length} possíveis lançamentos neste PDF. A leitura de PDF é
-                aproximada — revise com atenção os valores e descrições na próxima etapa antes de
-                salvar.
+              <p className="mt-1">
+                {notaFiscal?.itens.length ?? 0} itens · Valor dos itens:{' '}
+                {moeda(notaFiscal?.valorTotal ?? 0)}
+                {notaFiscal?.desconto ? (
+                  <>
+                    {' '}
+                    · Desconto de {moeda(notaFiscal.desconto)} (valor pago:{' '}
+                    {moeda(notaFiscal.valorPago ?? 0)}) — os itens abaixo mantêm o valor de tabela
+                    impresso na nota, sem desconto aplicado.
+                  </>
+                ) : null}
               </p>
-            ) : (
-              <p className="mb-4 text-sm text-gray-600">
-                Encontramos {linhasBrutas.length} linhas. Indique qual coluna do seu arquivo
-                corresponde a cada campo:
+              <p className="mt-1 text-xs text-texto-suave">
+                Categoria e subcategoria já vêm sugeridas pelo nome do produto — confira e ajuste o
+                que precisar na próxima etapa.
               </p>
-            )}
+            </div>
+          ) : formato === 'ofx' ? (
+            <p className="text-sm text-texto-suave">
+              Encontramos {linhasOfx.length} lançamentos neste OFX. O arquivo já indica o que é
+              entrada e o que é saída, então não é preciso mapear colunas.
+            </p>
+          ) : formato === 'pdf' ? (
+            <p className="text-sm text-texto-suave">
+              Detectamos {linhasPdf.length} possíveis lançamentos neste PDF. A leitura de PDF é
+              aproximada — revise com atenção os valores e descrições na próxima etapa antes de
+              salvar.
+            </p>
+          ) : (
+            <p className="text-sm text-texto-suave">
+              Encontramos {linhasBrutas.length} linhas. Indique qual coluna do seu arquivo
+              corresponde a cada campo:
+            </p>
+          )}
 
-            {formato !== 'pdf' && formato !== 'ofx' && formato !== 'nfce' && (
-              <>
-                <label className="mb-1 block text-sm text-gray-600">Coluna de Data</label>
+          {formato !== 'pdf' && formato !== 'ofx' && formato !== 'nfce' && (
+            <div className="grid gap-4 sm:grid-cols-3">
+              <Campo rotulo="Coluna de Data">
                 <select
                   value={colData}
                   onChange={(e) => setColData(e.target.value)}
-                  className="mb-4 w-full rounded border border-gray-300 px-3 py-2"
+                  className={classeInput}
                 >
                   <option value="">Selecione...</option>
                   {colunas.map((c) => (
                     <option key={c} value={c}>{c}</option>
                   ))}
                 </select>
+              </Campo>
 
-                <label className="mb-1 block text-sm text-gray-600">Coluna de Descrição</label>
+              <Campo rotulo="Coluna de Descrição">
                 <select
                   value={colDescricao}
                   onChange={(e) => setColDescricao(e.target.value)}
-                  className="mb-4 w-full rounded border border-gray-300 px-3 py-2"
+                  className={classeInput}
                 >
                   <option value="">Selecione...</option>
                   {colunas.map((c) => (
                     <option key={c} value={c}>{c}</option>
                   ))}
                 </select>
+              </Campo>
 
-                <label className="mb-1 block text-sm text-gray-600">Coluna de Valor</label>
+              <Campo rotulo="Coluna de Valor">
                 <select
                   value={colValor}
                   onChange={(e) => setColValor(e.target.value)}
-                  className="mb-4 w-full rounded border border-gray-300 px-3 py-2"
+                  className={classeInput}
                 >
                   <option value="">Selecione...</option>
                   {colunas.map((c) => (
                     <option key={c} value={c}>{c}</option>
                   ))}
                 </select>
-              </>
-            )}
+              </Campo>
+            </div>
+          )}
 
-            {formato === 'nfce' ? (
-              <div className="mb-4">
-                <label className="mb-1 block text-sm text-gray-600">Meio de pagamento</label>
-                <div className="mb-3 grid grid-cols-2 gap-2">
-                  {(Object.keys(ROTULO_MEIO_PAGAMENTO) as MeioPagamento[]).map((mp) => (
-                    <button
-                      key={mp}
-                      type="button"
-                      onClick={() => setMeioPagamento(mp)}
-                      className={`rounded border px-3 py-2 text-sm font-medium ${
-                        meioPagamento === mp
-                          ? 'border-blue-600 bg-blue-600 text-white'
-                          : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
-                      }`}
-                    >
-                      {ROTULO_MEIO_PAGAMENTO[mp]}
-                    </button>
-                  ))}
-                </div>
-
-                {meioPagamento === 'debito' && (
-                  <select
-                    value={contaId}
-                    onChange={(e) => setContaId(e.target.value)}
-                    className="w-full rounded border border-gray-300 px-3 py-2"
+          {formato === 'nfce' ? (
+            <div>
+              <span className="mb-1.5 block text-sm font-medium text-texto">Meio de pagamento</span>
+              <div className="mb-3 grid grid-cols-2 gap-2">
+                {(Object.keys(ROTULO_MEIO_PAGAMENTO) as MeioPagamento[]).map((mp) => (
+                  <button
+                    key={mp}
+                    type="button"
+                    onClick={() => setMeioPagamento(mp)}
+                    className={classeBotaoOpcao(meioPagamento === mp)}
                   >
-                    <option value="">Selecione a conta...</option>
-                    {contas.map((c) => (
+                    {ROTULO_MEIO_PAGAMENTO[mp]}
+                  </button>
+                ))}
+              </div>
+
+              {meioPagamento === 'debito' && (
+                <select
+                  value={contaId}
+                  onChange={(e) => setContaId(e.target.value)}
+                  className={classeInput}
+                >
+                  <option value="">Selecione a conta...</option>
+                  {contas.map((c) => (
+                    <option key={c.id} value={c.id}>{c.nome}</option>
+                  ))}
+                </select>
+              )}
+
+              {(meioPagamento === 'credito_vista' || meioPagamento === 'credito_parcelado') && (
+                <>
+                  <select
+                    value={cartaoId}
+                    onChange={(e) => setCartaoId(e.target.value)}
+                    className={classeInput}
+                  >
+                    <option value="">Selecione o cartão...</option>
+                    {cartoes.map((c) => (
                       <option key={c.id} value={c.id}>{c.nome}</option>
                     ))}
                   </select>
-                )}
 
-                {(meioPagamento === 'credito_vista' || meioPagamento === 'credito_parcelado') && (
-                  <>
-                    <select
-                      value={cartaoId}
-                      onChange={(e) => setCartaoId(e.target.value)}
-                      className="w-full rounded border border-gray-300 px-3 py-2"
-                    >
-                      <option value="">Selecione o cartão...</option>
-                      {cartoes.map((c) => (
-                        <option key={c.id} value={c.id}>{c.nome}</option>
-                      ))}
-                    </select>
-
-                    {meioPagamento === 'credito_parcelado' && (
-                      <div className="mt-3">
-                        <label className="mb-1 block text-sm text-gray-600">Número de parcelas</label>
+                  {meioPagamento === 'credito_parcelado' && (
+                    <div className="mt-3">
+                      <Campo rotulo="Número de parcelas">
                         <input
                           type="number"
                           min="2"
                           max="24"
                           value={parcelasNfce}
                           onChange={(e) => setParcelasNfce(e.target.value)}
-                          className="w-full rounded border border-gray-300 px-3 py-2"
+                          className={classeInput}
                         />
-                        <p className="mt-1.5 text-xs text-gray-500">
-                          Cada um dos {notaFiscal?.itens.length ?? 0} itens vira{' '}
-                          {Math.max(2, parseInt(parcelasNfce || '2', 10))} lançamentos mensais — um
-                          total de{' '}
-                          {(notaFiscal?.itens.length ?? 0) *
-                            Math.max(2, parseInt(parcelasNfce || '2', 10))}{' '}
-                          lançamentos, um por mês, com o valor de cada item dividido.
-                        </p>
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-            ) : (
-              <>
-                <label className="mb-1 block text-sm text-gray-600">Banco / Cartão</label>
-                <input
-                  type="text"
-                  value={bancoCartao}
-                  onChange={(e) => setBancoCartao(e.target.value)}
-                  placeholder="Ex: Itaú, Nubank"
-                  className="mb-4 w-full rounded border border-gray-300 px-3 py-2"
-                />
-              </>
-            )}
+                      </Campo>
+                      <p className="mt-1.5 text-xs text-texto-suave">
+                        Cada um dos {notaFiscal?.itens.length ?? 0} itens vira{' '}
+                        {Math.max(2, parseInt(parcelasNfce || '2', 10))} lançamentos mensais — um
+                        total de{' '}
+                        {(notaFiscal?.itens.length ?? 0) *
+                          Math.max(2, parseInt(parcelasNfce || '2', 10))}{' '}
+                        lançamentos, um por mês, com o valor de cada item dividido.
+                      </p>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          ) : (
+            <Campo rotulo="Banco / Cartão">
+              <input
+                type="text"
+                value={bancoCartao}
+                onChange={(e) => setBancoCartao(e.target.value)}
+                placeholder="Ex: Itaú, Nubank"
+                className={classeInput}
+              />
+            </Campo>
+          )}
 
+          <div className="grid gap-4 sm:grid-cols-2">
             {formato !== 'ofx' && formato !== 'nfce' && (
-              <>
-                <label className="mb-1 block text-sm text-gray-600">Tipo (todas as linhas)</label>
+              <Campo rotulo="Tipo (todas as linhas)">
                 <select
                   value={tipoBatch}
                   onChange={(e) => setTipoBatch(e.target.value)}
-                  className="mb-4 w-full rounded border border-gray-300 px-3 py-2"
+                  className={classeInput}
                 >
                   <option value="despesa">Despesa</option>
                   <option value="receita">Receita</option>
                 </select>
-              </>
+              </Campo>
             )}
 
-            <label className="mb-1 block text-sm text-gray-600">Escopo padrão</label>
-            <select
-              value={escopoBatch}
-              onChange={(e) => setEscopoBatch(e.target.value)}
-              className="mb-6 w-full rounded border border-gray-300 px-3 py-2"
-            >
-              <option value="pessoal">Pessoal (só eu vejo)</option>
-              <option value="familiar">Familiar (todos veem)</option>
-            </select>
-
-            <button
-              onClick={processarMapeamento}
-              disabled={!podeContinuarMapeamento}
-              className="w-full rounded bg-blue-600 py-2 text-white hover:bg-blue-700 disabled:opacity-50"
-            >
-              Continuar para revisão
-            </button>
-          </div>
-        )}
-
-        {etapa === 'revisar' && (
-          <div className="rounded-lg bg-white p-6 shadow-sm">
-            <div className="mb-4 flex items-end gap-2">
-              <div className="flex-1">
-                <label className="mb-1 block text-sm text-gray-600">
-                  Aplicar categoria a todas as linhas marcadas
-                </label>
-                <select
-                  value={categoriaEmMassa}
-                  onChange={(e) => {
-                    setCategoriaEmMassa(e.target.value)
-                    setSubcategoriaEmMassa('')
-                  }}
-                  className="w-full rounded border border-gray-300 px-3 py-2"
-                >
-                  <option value="">Selecione...</option>
-                  {categoriasFiltradas.map((c) => (
-                    <option key={c.id} value={c.id}>{c.nome}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex-1">
-                <label className="mb-1 block text-sm text-gray-600">
-                  Subcategoria (opcional)
-                </label>
-                <select
-                  value={subcategoriaEmMassa}
-                  onChange={(e) => setSubcategoriaEmMassa(e.target.value)}
-                  disabled={!categoriaEmMassa}
-                  className="w-full rounded border border-gray-300 px-3 py-2 disabled:bg-gray-100"
-                >
-                  <option value="">Selecione...</option>
-                  {subcategoriasEmMassaFiltradas.map((s) => (
-                    <option key={s.id} value={s.id}>{s.nome}</option>
-                  ))}
-                </select>
-              </div>
-              <button
-                onClick={aplicarCategoriaEmMassa}
-                disabled={!categoriaEmMassa}
-                className="rounded bg-gray-600 px-4 py-2 text-sm text-white hover:bg-gray-700 disabled:opacity-50"
+            <Campo rotulo="Escopo padrão">
+              <select
+                value={escopoBatch}
+                onChange={(e) => setEscopoBatch(e.target.value)}
+                className={classeInput}
               >
-                Aplicar a todas
-              </button>
-            </div>
+                <option value="pessoal">Pessoal (só eu vejo)</option>
+                <option value="familiar">Familiar (todos veem)</option>
+              </select>
+            </Campo>
+          </div>
 
-            <div className="mb-4 max-h-[500px] overflow-auto rounded border border-gray-200">
+          <BotaoPrimario
+            onClick={processarMapeamento}
+            disabled={!podeContinuarMapeamento}
+            className="w-full"
+          >
+            Continuar para revisão
+          </BotaoPrimario>
+        </div>
+      )}
+
+      {etapa === 'revisar' && (
+        <div className="space-y-4">
+          <div className="cartao grid gap-3 p-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+            <Campo rotulo="Aplicar categoria a todas as linhas marcadas">
+              <select
+                value={categoriaEmMassa}
+                onChange={(e) => {
+                  setCategoriaEmMassa(e.target.value)
+                  setSubcategoriaEmMassa('')
+                }}
+                className={classeInput}
+              >
+                <option value="">Selecione...</option>
+                {categoriasFiltradas.map((c) => (
+                  <option key={c.id} value={c.id}>{c.nome}</option>
+                ))}
+              </select>
+            </Campo>
+            <Campo rotulo="Subcategoria (opcional)">
+              <select
+                value={subcategoriaEmMassa}
+                onChange={(e) => setSubcategoriaEmMassa(e.target.value)}
+                disabled={!categoriaEmMassa}
+                className={classeInput}
+              >
+                <option value="">Selecione...</option>
+                {subcategoriasEmMassaFiltradas.map((s) => (
+                  <option key={s.id} value={s.id}>{s.nome}</option>
+                ))}
+              </select>
+            </Campo>
+            <BotaoSecundario onClick={aplicarCategoriaEmMassa} disabled={!categoriaEmMassa}>
+              Aplicar a todas
+            </BotaoSecundario>
+          </div>
+
+          {/* Celular: lista em cartões empilhados, um campo por linha */}
+          <div className="space-y-3 sm:hidden">
+            {linhas.map((l, i) => (
+              <div key={i} className="cartao space-y-3 p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <label className="flex items-center gap-2 text-sm text-texto">
+                    <input
+                      type="checkbox"
+                      checked={l.incluir}
+                      onChange={(e) => atualizarLinha(i, 'incluir', e.target.checked)}
+                    />
+                    Incluir
+                  </label>
+                  <select
+                    value={l.tipo}
+                    onChange={(e) => atualizarLinha(i, 'tipo', e.target.value)}
+                    className={`rounded-lg border border-borda bg-superficie px-2 py-1.5 text-sm font-medium ${
+                      l.tipo === 'receita' ? 'text-receita' : 'text-despesa'
+                    }`}
+                  >
+                    <option value="despesa">Despesa</option>
+                    <option value="receita">Receita</option>
+                  </select>
+                </div>
+
+                <Campo rotulo="Descrição">
+                  <input
+                    type="text"
+                    value={l.descricao}
+                    onChange={(e) => atualizarLinha(i, 'descricao', e.target.value)}
+                    className={classeInput}
+                  />
+                </Campo>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <Campo rotulo="Data">
+                    <input
+                      type="date"
+                      value={l.data}
+                      onChange={(e) => atualizarLinha(i, 'data', e.target.value)}
+                      className={classeInput}
+                    />
+                  </Campo>
+                  <Campo rotulo="Valor (R$)">
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={l.valor}
+                      onChange={(e) => atualizarLinha(i, 'valor', parseFloat(e.target.value) || 0)}
+                      className={classeInput}
+                    />
+                  </Campo>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <Campo rotulo="Categoria">
+                    <select
+                      value={l.categoriaId}
+                      onChange={(e) => atualizarLinha(i, 'categoriaId', e.target.value)}
+                      className={classeInput}
+                    >
+                      <option value="">Sem categoria</option>
+                      {categoriasDoTipo(l.tipo).map((c) => (
+                        <option key={c.id} value={c.id}>{c.nome}</option>
+                      ))}
+                    </select>
+                  </Campo>
+                  <Campo rotulo="Subcategoria">
+                    <select
+                      value={l.subcategoriaId}
+                      onChange={(e) => atualizarLinha(i, 'subcategoriaId', e.target.value)}
+                      disabled={!l.categoriaId}
+                      className={classeInput}
+                    >
+                      <option value="">Selecione...</option>
+                      {subcategorias
+                        .filter((s) => s.categoria_id === l.categoriaId)
+                        .map((s) => (
+                          <option key={s.id} value={s.id}>{s.nome}</option>
+                        ))}
+                    </select>
+                  </Campo>
+                </div>
+
+                <Campo rotulo="Escopo">
+                  <select
+                    value={l.escopo}
+                    onChange={(e) => atualizarLinha(i, 'escopo', e.target.value)}
+                    className={classeInput}
+                  >
+                    <option value="pessoal">Pessoal</option>
+                    <option value="familiar">Familiar</option>
+                  </select>
+                </Campo>
+              </div>
+            ))}
+          </div>
+
+          {/* Tablet e desktop: tabela com rolagem própria */}
+          <div className="hidden cartao sm:block">
+            <div className="max-h-[500px] overflow-auto">
               <table className="w-full min-w-[760px] text-sm">
-                <thead className="sticky top-0 bg-gray-100">
+                <thead className="sticky top-0 border-b border-borda bg-fundo/90 text-left text-xs text-texto-suave backdrop-blur">
                   <tr>
-                    <th className="p-2 text-left">Incluir</th>
-                    <th className="p-2 text-left">Data</th>
-                    <th className="p-2 text-left">Descrição</th>
-                    <th className="p-2 text-left">Valor</th>
-                    <th className="p-2 text-left">Tipo</th>
-                    <th className="p-2 text-left">Categoria</th>
-                    <th className="p-2 text-left">Subcategoria</th>
-                    <th className="p-2 text-left">Escopo</th>
+                    <th className="p-3 font-medium">Incluir</th>
+                    <th className="p-3 font-medium">Data</th>
+                    <th className="p-3 font-medium">Descrição</th>
+                    <th className="p-3 font-medium">Valor</th>
+                    <th className="p-3 font-medium">Tipo</th>
+                    <th className="p-3 font-medium">Categoria</th>
+                    <th className="p-3 font-medium">Subcategoria</th>
+                    <th className="p-3 font-medium">Escopo</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="divide-y divide-borda">
                   {linhas.map((l, i) => (
-                    <tr key={i} className="border-t border-gray-100">
+                    <tr key={i}>
                       <td className="p-2">
                         <input
                           type="checkbox"
@@ -786,7 +896,7 @@ export default function ImportarPage() {
                           type="date"
                           value={l.data}
                           onChange={(e) => atualizarLinha(i, 'data', e.target.value)}
-                          className="w-32 rounded border border-gray-300 px-2 py-1"
+                          className="w-36 rounded-lg border border-borda bg-superficie px-2 py-1.5 text-texto"
                         />
                       </td>
                       <td className="p-2">
@@ -794,7 +904,7 @@ export default function ImportarPage() {
                           type="text"
                           value={l.descricao}
                           onChange={(e) => atualizarLinha(i, 'descricao', e.target.value)}
-                          className="w-40 rounded border border-gray-300 px-2 py-1"
+                          className="w-44 rounded-lg border border-borda bg-superficie px-2 py-1.5 text-texto"
                         />
                       </td>
                       <td className="p-2">
@@ -805,14 +915,14 @@ export default function ImportarPage() {
                           onChange={(e) =>
                             atualizarLinha(i, 'valor', parseFloat(e.target.value) || 0)
                           }
-                          className="w-24 rounded border border-gray-300 px-2 py-1"
+                          className="w-24 rounded-lg border border-borda bg-superficie px-2 py-1.5 text-texto"
                         />
                       </td>
                       <td className="p-2">
                         <select
                           value={l.tipo}
                           onChange={(e) => atualizarLinha(i, 'tipo', e.target.value)}
-                          className={`rounded border border-gray-300 px-2 py-1 font-medium ${
+                          className={`rounded-lg border border-borda bg-superficie px-2 py-1.5 font-medium ${
                             l.tipo === 'receita' ? 'text-receita' : 'text-despesa'
                           }`}
                         >
@@ -824,7 +934,7 @@ export default function ImportarPage() {
                         <select
                           value={l.categoriaId}
                           onChange={(e) => atualizarLinha(i, 'categoriaId', e.target.value)}
-                          className="rounded border border-gray-300 px-2 py-1"
+                          className="rounded-lg border border-borda bg-superficie px-2 py-1.5 text-texto"
                         >
                           <option value="">Sem categoria</option>
                           {categoriasDoTipo(l.tipo).map((c) => (
@@ -837,7 +947,7 @@ export default function ImportarPage() {
                           value={l.subcategoriaId}
                           onChange={(e) => atualizarLinha(i, 'subcategoriaId', e.target.value)}
                           disabled={!l.categoriaId}
-                          className="rounded border border-gray-300 px-2 py-1 disabled:bg-gray-100"
+                          className="rounded-lg border border-borda bg-superficie px-2 py-1.5 text-texto disabled:bg-fundo"
                         >
                           <option value="">Selecione...</option>
                           {subcategorias
@@ -851,7 +961,7 @@ export default function ImportarPage() {
                         <select
                           value={l.escopo}
                           onChange={(e) => atualizarLinha(i, 'escopo', e.target.value)}
-                          className="rounded border border-gray-300 px-2 py-1"
+                          className="rounded-lg border border-borda bg-superficie px-2 py-1.5 text-texto"
                         >
                           <option value="pessoal">Pessoal</option>
                           <option value="familiar">Familiar</option>
@@ -862,23 +972,16 @@ export default function ImportarPage() {
                 </tbody>
               </table>
             </div>
-
-            {mensagem && (
-              <p className={`mb-4 text-sm ${mensagem.startsWith('Erro') || mensagem.startsWith('Nenhuma') ? 'text-red-600' : 'text-green-600'}`}>
-                {mensagem}
-              </p>
-            )}
-
-            <button
-              onClick={handleSalvar}
-              disabled={salvando}
-              className="w-full rounded bg-blue-600 py-2 text-white hover:bg-blue-700 disabled:opacity-50"
-            >
-              {salvando ? 'Salvando...' : `Salvar ${linhas.filter((l) => l.incluir).length} lançamentos`}
-            </button>
           </div>
-        )}
-      </div>
-    </div>
+
+          <div className="cartao p-4 sm:p-6">
+            <Mensagem texto={mensagem} />
+            <BotaoPrimario onClick={handleSalvar} disabled={salvando} className="mt-3 w-full">
+              {salvando ? 'Salvando...' : `Salvar ${linhas.filter((l) => l.incluir).length} lançamentos`}
+            </BotaoPrimario>
+          </div>
+        </div>
+      )}
+    </Pagina>
   )
 }
