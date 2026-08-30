@@ -103,13 +103,12 @@ export default function ImportarPage() {
   const [colData, setColData] = useState('')
   const [colDescricao, setColDescricao] = useState('')
   const [colValor, setColValor] = useState('')
-  const [bancoCartao, setBancoCartao] = useState('')
   const [contas, setContas] = useState<Conta[]>([])
   const [cartoes, setCartoes] = useState<Cartao[]>([])
   const [meioPagamento, setMeioPagamento] = useState<MeioPagamento>('debito')
   const [contaId, setContaId] = useState('')
   const [cartaoId, setCartaoId] = useState('')
-  const [parcelasNfce, setParcelasNfce] = useState('2')
+  const [parcelas, setParcelas] = useState('2')
   const [tipoBatch, setTipoBatch] = useState('despesa')
   const [escopoBatch, setEscopoBatch] = useState('pessoal')
   const [linhas, setLinhas] = useState<LinhaImportada[]>([])
@@ -252,7 +251,6 @@ export default function ImportarPage() {
         setMensagem(resultado.error || 'Não foi possível ler esta nota fiscal.')
       } else {
         setNotaFiscal(resultado.nota)
-        if (resultado.nota.formaPagamento) setBancoCartao(resultado.nota.formaPagamento)
         setEtapa('mapear')
       }
     } catch (err) {
@@ -306,10 +304,7 @@ export default function ImportarPage() {
     if (formato === 'nfce') {
       // Nota fiscal só tem despesa; a categoria é um chute pelo nome do
       // produto, sempre revisável na tela seguinte antes de salvar
-      const quantidadeParcelas =
-        meioPagamento === 'credito_parcelado' ? Math.max(2, parseInt(parcelasNfce || '2', 10)) : 1
-
-      processadas = (notaFiscal?.itens ?? []).flatMap((item) => {
+      processadas = (notaFiscal?.itens ?? []).map((item) => {
         const sugestao = sugerirCategoria(item.descricao)
         const categoriaSugerida = sugestao
           ? categorias.find(
@@ -324,7 +319,7 @@ export default function ImportarPage() {
                   s.nome.toLowerCase() === sugestao.subcategoria.toLowerCase()
               )
             : undefined
-        const base: LinhaImportada = {
+        return {
           data: notaFiscal?.dataEmissao || hojeISO(),
           descricao: item.descricao,
           valor: item.valorTotal,
@@ -334,7 +329,6 @@ export default function ImportarPage() {
           escopo: escopoBatch,
           incluir: true,
         }
-        return quantidadeParcelas > 1 ? dividirEmParcelas(base, quantidadeParcelas) : [base]
       })
     } else if (formato === 'ofx') {
       // O OFX traz receitas e despesas no mesmo arquivo: o sinal do valor decide
@@ -370,6 +364,13 @@ export default function ImportarPage() {
         escopo: escopoBatch,
         incluir: true,
       }))
+    }
+
+    // Crédito parcelado divide CADA lançamento em N parcelas mensais —
+    // vale pra qualquer formato, não só nota fiscal
+    if (meioPagamento === 'credito_parcelado') {
+      const quantidadeParcelas = Math.max(2, parseInt(parcelas || '2', 10))
+      processadas = processadas.flatMap((linha) => dividirEmParcelas(linha, quantidadeParcelas))
     }
 
     setLinhas(processadas)
@@ -440,13 +441,12 @@ export default function ImportarPage() {
     const { data: userData } = await supabase.auth.getUser()
     const userId = userData.user?.id
 
-    const ehNfce = formato === 'nfce'
-    const contaParaSalvar = ehNfce && meioPagamento === 'debito' ? contaId || null : null
+    const contaParaSalvar = meioPagamento === 'debito' ? contaId || null : null
     const cartaoParaSalvar =
-      ehNfce && (meioPagamento === 'credito_vista' || meioPagamento === 'credito_parcelado')
+      meioPagamento === 'credito_vista' || meioPagamento === 'credito_parcelado'
         ? cartaoId || null
         : null
-    const bancoCartaoParaSalvar = ehNfce ? ROTULO_MEIO_PAGAMENTO[meioPagamento] : bancoCartao || null
+    const bancoCartaoParaSalvar = ROTULO_MEIO_PAGAMENTO[meioPagamento]
 
     const linhasParaSalvar = linhas
       .filter((l) => l.incluir)
@@ -490,7 +490,7 @@ export default function ImportarPage() {
     setMeioPagamento('debito')
     setContaId('')
     setCartaoId('')
-    setParcelasNfce('2')
+    setParcelas('2')
   }
 
   const categoriasFiltradas = categorias.filter((c) => c.tipo === tipoBatch)
@@ -498,6 +498,15 @@ export default function ImportarPage() {
   const subcategoriasEmMassaFiltradas = subcategorias.filter(
     (s) => s.categoria_id === categoriaEmMassa
   )
+
+  const quantidadeItensParaImportar =
+    formato === 'nfce'
+      ? (notaFiscal?.itens.length ?? 0)
+      : formato === 'ofx'
+        ? linhasOfx.length
+        : formato === 'pdf'
+          ? linhasPdf.length
+          : linhasBrutas.length
 
   const meioPagamentoValido =
     meioPagamento === 'dinheiro'
@@ -507,13 +516,13 @@ export default function ImportarPage() {
         : !!cartaoId
 
   const podeContinuarMapeamento =
-    formato === 'nfce'
-      ? (notaFiscal?.itens.length ?? 0) > 0 && meioPagamentoValido
+    (formato === 'nfce'
+      ? (notaFiscal?.itens.length ?? 0) > 0
       : formato === 'ofx'
         ? linhasOfx.length > 0
         : formato === 'pdf'
           ? linhasPdf.length > 0
-          : !!colData && !!colDescricao && !!colValor
+          : !!colData && !!colDescricao && !!colValor) && meioPagamentoValido
 
   return (
     <Pagina>
@@ -573,6 +582,9 @@ export default function ImportarPage() {
               <p className="mt-1">
                 {notaFiscal?.itens.length ?? 0} itens · Valor dos itens:{' '}
                 {moeda(notaFiscal?.valorTotal ?? 0)}
+                {notaFiscal?.formaPagamento ? (
+                  <> · Forma de pagamento na nota: {notaFiscal.formaPagamento}</>
+                ) : null}
                 {notaFiscal?.desconto ? (
                   <>
                     {' '}
@@ -648,84 +660,73 @@ export default function ImportarPage() {
             </div>
           )}
 
-          {formato === 'nfce' ? (
-            <div>
-              <span className="mb-1.5 block text-sm font-medium text-texto">Meio de pagamento</span>
-              <div className="mb-3 grid grid-cols-2 gap-2">
-                {(Object.keys(ROTULO_MEIO_PAGAMENTO) as MeioPagamento[]).map((mp) => (
-                  <button
-                    key={mp}
-                    type="button"
-                    onClick={() => setMeioPagamento(mp)}
-                    className={classeBotaoOpcao(meioPagamento === mp)}
-                  >
-                    {ROTULO_MEIO_PAGAMENTO[mp]}
-                  </button>
-                ))}
-              </div>
+          <div>
+            <span className="mb-1.5 block text-sm font-medium text-texto">
+              Qual conta ou cartão essas despesas vão ser lançadas
+            </span>
+            <div className="mb-3 grid grid-cols-2 gap-2">
+              {(Object.keys(ROTULO_MEIO_PAGAMENTO) as MeioPagamento[]).map((mp) => (
+                <button
+                  key={mp}
+                  type="button"
+                  onClick={() => setMeioPagamento(mp)}
+                  className={classeBotaoOpcao(meioPagamento === mp)}
+                >
+                  {ROTULO_MEIO_PAGAMENTO[mp]}
+                </button>
+              ))}
+            </div>
 
-              {meioPagamento === 'debito' && (
+            {meioPagamento === 'debito' && (
+              <select
+                value={contaId}
+                onChange={(e) => setContaId(e.target.value)}
+                className={classeInput}
+              >
+                <option value="">Selecione a conta...</option>
+                {contas.map((c) => (
+                  <option key={c.id} value={c.id}>{c.nome}</option>
+                ))}
+              </select>
+            )}
+
+            {(meioPagamento === 'credito_vista' || meioPagamento === 'credito_parcelado') && (
+              <>
                 <select
-                  value={contaId}
-                  onChange={(e) => setContaId(e.target.value)}
+                  value={cartaoId}
+                  onChange={(e) => setCartaoId(e.target.value)}
                   className={classeInput}
                 >
-                  <option value="">Selecione a conta...</option>
-                  {contas.map((c) => (
+                  <option value="">Selecione o cartão...</option>
+                  {cartoes.map((c) => (
                     <option key={c.id} value={c.id}>{c.nome}</option>
                   ))}
                 </select>
-              )}
 
-              {(meioPagamento === 'credito_vista' || meioPagamento === 'credito_parcelado') && (
-                <>
-                  <select
-                    value={cartaoId}
-                    onChange={(e) => setCartaoId(e.target.value)}
-                    className={classeInput}
-                  >
-                    <option value="">Selecione o cartão...</option>
-                    {cartoes.map((c) => (
-                      <option key={c.id} value={c.id}>{c.nome}</option>
-                    ))}
-                  </select>
-
-                  {meioPagamento === 'credito_parcelado' && (
-                    <div className="mt-3">
-                      <Campo rotulo="Número de parcelas">
-                        <input
-                          type="number"
-                          min="2"
-                          max="24"
-                          value={parcelasNfce}
-                          onChange={(e) => setParcelasNfce(e.target.value)}
-                          className={classeInput}
-                        />
-                      </Campo>
-                      <p className="mt-1.5 text-xs text-texto-suave">
-                        Cada um dos {notaFiscal?.itens.length ?? 0} itens vira{' '}
-                        {Math.max(2, parseInt(parcelasNfce || '2', 10))} lançamentos mensais — um
-                        total de{' '}
-                        {(notaFiscal?.itens.length ?? 0) *
-                          Math.max(2, parseInt(parcelasNfce || '2', 10))}{' '}
-                        lançamentos, um por mês, com o valor de cada item dividido.
-                      </p>
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-          ) : (
-            <Campo rotulo="Banco / Cartão">
-              <input
-                type="text"
-                value={bancoCartao}
-                onChange={(e) => setBancoCartao(e.target.value)}
-                placeholder="Ex: Itaú, Nubank"
-                className={classeInput}
-              />
-            </Campo>
-          )}
+                {meioPagamento === 'credito_parcelado' && (
+                  <div className="mt-3">
+                    <Campo rotulo="Número de parcelas">
+                      <input
+                        type="number"
+                        min="2"
+                        max="24"
+                        value={parcelas}
+                        onChange={(e) => setParcelas(e.target.value)}
+                        className={classeInput}
+                      />
+                    </Campo>
+                    <p className="mt-1.5 text-xs text-texto-suave">
+                      Cada um dos {quantidadeItensParaImportar} itens vira{' '}
+                      {Math.max(2, parseInt(parcelas || '2', 10))} lançamentos mensais — um total
+                      de{' '}
+                      {quantidadeItensParaImportar * Math.max(2, parseInt(parcelas || '2', 10))}{' '}
+                      lançamentos, um por mês, com o valor de cada item dividido.
+                    </p>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
             {formato !== 'ofx' && formato !== 'nfce' && (

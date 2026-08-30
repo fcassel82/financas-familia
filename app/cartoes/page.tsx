@@ -26,9 +26,11 @@ type Cartao = {
   conta_pagamento_id: string | null
   cor: string | null
   escopo: string
+  dono_id: string
 }
 
 type Conta = { id: string; nome: string }
+type Membro = { id: string; nome: string }
 
 const CORES = ['#eb6834', '#2a78d6', '#159d76', '#7c4dcc', '#d98324', '#dc4c4c', '#1c3a52']
 
@@ -53,16 +55,33 @@ export default function CartoesPage() {
   const [form, setForm] = useState(FORM_VAZIO)
   const [mensagem, setMensagem] = useState('')
   const [salvando, setSalvando] = useState(false)
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [membros, setMembros] = useState<Membro[]>([])
+  const [membroFiltro, setMembroFiltro] = useState('')
 
   const carregar = useCallback(async () => {
-    const [{ data: cartoesData }, { data: contasData }, { data: movimentos }] = await Promise.all([
-      supabase.from('cartoes_credito').select('*').order('nome'),
-      supabase.from('contas').select('id, nome').order('nome'),
-      supabase.from('transacoes').select('cartao_id, valor, tipo').eq('status', 'pago'),
-    ])
+    const { data: userData } = await supabase.auth.getUser()
+    const userId = userData.user?.id
+
+    const [{ data: cartoesData }, { data: contasData }, { data: movimentos }, { data: perfil }] =
+      await Promise.all([
+        supabase.from('cartoes_credito').select('*').order('nome'),
+        supabase.from('contas').select('id, nome').order('nome'),
+        supabase.from('transacoes').select('cartao_id, valor, tipo').eq('status', 'pago'),
+        userId
+          ? supabase.from('perfis').select('papel').eq('id', userId).single()
+          : Promise.resolve({ data: null }),
+      ])
 
     setCartoes((cartoesData ?? []) as Cartao[])
     setContas((contasData ?? []) as Conta[])
+
+    const admin = perfil?.papel === 'admin'
+    setIsAdmin(admin)
+    if (admin) {
+      const { data: membrosData } = await supabase.from('perfis').select('id, nome').order('nome')
+      if (membrosData) setMembros(membrosData)
+    }
 
     const acumulado: Record<string, number> = {}
     for (const m of movimentos ?? []) {
@@ -79,6 +98,10 @@ export default function CartoesPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     carregar()
   }, [carregar])
+
+  const cartoesVisiveis = membroFiltro
+    ? cartoes.filter((c) => c.dono_id === membroFiltro)
+    : cartoes
 
   function abrirNovo() {
     setEditandoId(null)
@@ -164,6 +187,23 @@ export default function CartoesPage() {
         }
       />
 
+      {isAdmin && membros.length > 0 && (
+        <div className="cartao mb-5 p-4">
+          <Campo rotulo="Exibir cartões de">
+            <select
+              className={classeInput}
+              value={membroFiltro}
+              onChange={(e) => setMembroFiltro(e.target.value)}
+            >
+              <option value="">Todos os membros</option>
+              {membros.map((m) => (
+                <option key={m.id} value={m.id}>{m.nome}</option>
+              ))}
+            </select>
+          </Campo>
+        </div>
+      )}
+
       {carregando && <p className="text-sm text-texto-suave">Carregando...</p>}
 
       {!carregando && cartoes.length === 0 && (
@@ -174,9 +214,16 @@ export default function CartoesPage() {
         />
       )}
 
-      {!carregando && cartoes.length > 0 && (
+      {!carregando && cartoes.length > 0 && cartoesVisiveis.length === 0 && (
+        <EstadoVazio
+          titulo="Nenhum cartão deste membro"
+          descricao="Tente outro membro no filtro acima."
+        />
+      )}
+
+      {!carregando && cartoesVisiveis.length > 0 && (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {cartoes.map((cartao) => {
+          {cartoesVisiveis.map((cartao) => {
             const gasto = gastoPorCartao[cartao.id] ?? 0
             const limite = cartao.limite ?? 0
             const percentual = limite > 0 ? Math.min(100, (gasto / limite) * 100) : 0

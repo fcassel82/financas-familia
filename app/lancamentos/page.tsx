@@ -84,6 +84,9 @@ function FormularioLancamento() {
   const [escopo, setEscopo] = useState('pessoal')
   const [parcelar, setParcelar] = useState(false)
   const [parcelas, setParcelas] = useState('2')
+  const [parcelaExistente, setParcelaExistente] = useState<{ numero: number; total: number } | null>(
+    null
+  )
 
   const [mensagem, setMensagem] = useState('')
   const [salvando, setSalvando] = useState(false)
@@ -114,7 +117,7 @@ function FormularioLancamento() {
       const { data: t, error } = await supabase
         .from('transacoes')
         .select(
-          'data, descricao, categoria_id, subcategoria_id, valor, tipo, escopo, conta_id, cartao_id'
+          'data, descricao, categoria_id, subcategoria_id, valor, tipo, escopo, conta_id, cartao_id, parcela_numero, parcela_total'
         )
         .eq('id', idEdicao)
         .single()
@@ -130,6 +133,9 @@ function FormularioLancamento() {
         setContaId(t.conta_id ?? '')
         setCartaoId(t.cartao_id ?? '')
         setPagoCom(t.cartao_id ? 'cartao' : 'conta')
+        if (t.parcela_total && t.parcela_total > 1) {
+          setParcelaExistente({ numero: t.parcela_numero, total: t.parcela_total })
+        }
       } else {
         setMensagem('Não foi possível carregar este lançamento.')
       }
@@ -187,6 +193,36 @@ function FormularioLancamento() {
 
   async function salvarEdicao() {
     setSalvando(true)
+    setMensagem('')
+
+    // Transformar um lançamento simples em parcelado: cria o grupo de parcelas
+    // e só então apaga o original — se a criação falhar, nada se perde
+    if (!parcelaExistente && parcelar && pagoCom === 'cartao') {
+      const quantidadeParcelas = Math.max(2, parseInt(parcelas || '2', 10))
+      const { data: userData } = await supabase.auth.getUser()
+      const userId = userData.user?.id
+      const registros = montarParcelas(montarRegistro(), quantidadeParcelas, userId)
+
+      const { error: erroInsercao } = await supabase.from('transacoes').insert(registros)
+      if (erroInsercao) {
+        setSalvando(false)
+        setMensagem('Erro ao salvar: ' + erroInsercao.message)
+        return
+      }
+
+      const { error: erroExclusao } = await supabase.from('transacoes').delete().eq('id', idEdicao)
+      setSalvando(false)
+      if (erroExclusao) {
+        setMensagem(
+          'As parcelas foram criadas, mas não foi possível remover o lançamento original: ' +
+            erroExclusao.message
+        )
+        return
+      }
+      router.push('/transacoes')
+      return
+    }
+
     const { error } = await supabase.from('transacoes').update(montarRegistro()).eq('id', idEdicao)
     setSalvando(false)
     if (error) {
@@ -355,7 +391,11 @@ function FormularioLancamento() {
           <div className="mb-3 flex gap-2">
             <button
               type="button"
-              onClick={() => setPagoCom('conta')}
+              onClick={() => {
+                setPagoCom('conta')
+                // Parcelamento só existe para cartão de crédito
+                setParcelar(false)
+              }}
               className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
                 pagoCom === 'conta'
                   ? 'bg-marinho text-white'
@@ -434,42 +474,51 @@ function FormularioLancamento() {
           </select>
         </Campo>
 
-        {/* Parcelamento só faz sentido ao criar; ao editar, mexe-se numa parcela só */}
-        {!idEdicao && (
-          <div className="rounded-lg border border-borda p-3">
-            <label className="flex items-center gap-2 text-sm text-texto">
-              <input
-                type="checkbox"
-                checked={parcelar}
-                onChange={(e) => setParcelar(e.target.checked)}
-              />
-              Parcelar em várias vezes
-            </label>
+        {/* Parcelamento só existe pra cartão de crédito */}
+        {pagoCom === 'cartao' &&
+          (parcelaExistente ? (
+            <div className="rounded-lg border border-borda p-3 text-sm text-texto-suave">
+              Parcela {parcelaExistente.numero} de {parcelaExistente.total} — o número de parcelas
+              não pode ser alterado na edição. Para mudar, apague e lance de novo.
+            </div>
+          ) : (
+            <div className="rounded-lg border border-borda p-3">
+              <label className="flex items-center gap-2 text-sm text-texto">
+                <input
+                  type="checkbox"
+                  checked={parcelar}
+                  onChange={(e) => setParcelar(e.target.checked)}
+                />
+                Parcelar em várias vezes
+              </label>
 
-            {parcelar && (
-              <div className="mt-3">
-                <Campo rotulo="Número de parcelas">
-                  <input
-                    type="number"
-                    min="2"
-                    max="120"
-                    className={classeInput}
-                    value={parcelas}
-                    onChange={(e) => setParcelas(e.target.value)}
-                  />
-                </Campo>
-                {parseFloat(valor) > 0 && parseInt(parcelas || '0', 10) >= 2 && (
-                  <p className="mt-1.5 text-xs text-texto-suave">
-                    {parcelas}x de aproximadamente{' '}
-                    {moeda(parseFloat(valor) / parseInt(parcelas, 10))}, uma por mês. O valor total
-                    de {moeda(parseFloat(valor))} é mantido — os centavos da divisão vão para a
-                    última parcela.
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-        )}
+              {parcelar && (
+                <div className="mt-3">
+                  <Campo rotulo="Número de parcelas">
+                    <input
+                      type="number"
+                      min="2"
+                      max="120"
+                      className={classeInput}
+                      value={parcelas}
+                      onChange={(e) => setParcelas(e.target.value)}
+                    />
+                  </Campo>
+                  {parseFloat(valor) > 0 && parseInt(parcelas || '0', 10) >= 2 && (
+                    <p className="mt-1.5 text-xs text-texto-suave">
+                      {parcelas}x de aproximadamente{' '}
+                      {moeda(parseFloat(valor) / parseInt(parcelas, 10))}, uma por mês. O valor
+                      total de {moeda(parseFloat(valor))} é mantido — os centavos da divisão vão
+                      para a última parcela.
+                      {idEdicao
+                        ? ' Ao salvar, este lançamento único vira um grupo de parcelas.'
+                        : ''}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
 
         <Mensagem texto={mensagem} />
 

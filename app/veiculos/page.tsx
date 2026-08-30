@@ -48,7 +48,19 @@ type Manutencao = {
   proximo_odometro: number | null
 }
 
+/** Um lançamento de Transporte/Combustível ou Transporte/Manutenção que
+ * ainda não foi ligado a um veículo específico */
+type LancamentoNaoVinculado = { id: string; data: string; descricao: string; valor: number }
+
 const CORES = ['#2a78d6', '#159d76', '#eb6834', '#7c4dcc', '#d98324', '#dc4c4c', '#1c3a52']
+const OPCOES_COMBUSTIVEL: { valor: string; rotulo: string }[] = [
+  { valor: 'flex', rotulo: 'Flex' },
+  { valor: 'gasolina', rotulo: 'Gasolina' },
+  { valor: 'etanol', rotulo: 'Etanol' },
+  { valor: 'diesel', rotulo: 'Diesel' },
+  { valor: 'gnv', rotulo: 'GNV' },
+  { valor: 'eletrico', rotulo: 'Elétrico' },
+]
 const TIPOS_MANUTENCAO = [
   'Troca de óleo',
   'Revisão',
@@ -102,6 +114,20 @@ const FORM_MANUTENCAO = {
   oficina: '',
   proxima_data: '',
   proximo_odometro: '',
+}
+
+const FORM_VINCULO_COMBUSTIVEL = {
+  veiculo_id: '',
+  tipo_combustivel: 'flex',
+  odometro: '',
+  litros: '',
+  tanque_cheio: true,
+}
+
+const FORM_VINCULO_MANUTENCAO = {
+  veiculo_id: '',
+  tipo: TIPOS_MANUTENCAO[0],
+  odometro: '',
 }
 
 type FormVeiculo = typeof FORM_VEICULO
@@ -251,6 +277,13 @@ export default function VeiculosPage() {
   )
   const [formLancamento, setFormLancamento] = useState(FORM_LANCAMENTO)
 
+  const [combustivelSemVinculo, setCombustivelSemVinculo] = useState<LancamentoNaoVinculado[]>([])
+  const [manutencaoSemVinculo, setManutencaoSemVinculo] = useState<LancamentoNaoVinculado[]>([])
+  const [vinculandoCombustivelId, setVinculandoCombustivelId] = useState<string | null>(null)
+  const [formVinculoCombustivel, setFormVinculoCombustivel] = useState(FORM_VINCULO_COMBUSTIVEL)
+  const [vinculandoManutencaoId, setVinculandoManutencaoId] = useState<string | null>(null)
+  const [formVinculoManutencao, setFormVinculoManutencao] = useState(FORM_VINCULO_MANUTENCAO)
+
   useEffect(() => {
     async function carregarVeiculos() {
       const { data } = await supabase.from('veiculos').select('*').eq('ativo', true).order('nome')
@@ -275,6 +308,55 @@ export default function VeiculosPage() {
     }
     carregarListasLancamento()
   }, [])
+
+  const carregarNaoVinculados = useCallback(async () => {
+    const categoriaTransporte = categorias.find((c) => c.nome === 'Transporte')
+    if (!categoriaTransporte) return
+
+    const subCombustivel = subcategorias.find(
+      (s) => s.categoria_id === categoriaTransporte.id && s.nome === 'Combustível'
+    )
+    const subManutencao = subcategorias.find(
+      (s) => s.categoria_id === categoriaTransporte.id && s.nome === 'Manutenção'
+    )
+
+    // Um lançamento só sai da lista quando já virar um abastecimento/manutenção
+    // de verdade — busca quem já foi vinculado pra excluir do restante
+    const [{ data: vinculosCombustivel }, { data: vinculosManutencao }] = await Promise.all([
+      supabase.from('abastecimentos').select('transacao_id').not('transacao_id', 'is', null),
+      supabase.from('manutencoes').select('transacao_id').not('transacao_id', 'is', null),
+    ])
+    const idsCombustivel = new Set((vinculosCombustivel ?? []).map((a) => a.transacao_id))
+    const idsManutencao = new Set((vinculosManutencao ?? []).map((m) => m.transacao_id))
+
+    if (subCombustivel) {
+      const { data } = await supabase
+        .from('transacoes')
+        .select('id, data, descricao, valor')
+        .eq('categoria_id', categoriaTransporte.id)
+        .eq('subcategoria_id', subCombustivel.id)
+        .eq('status', 'pago')
+        .order('data', { ascending: false })
+      setCombustivelSemVinculo(((data ?? []) as LancamentoNaoVinculado[]).filter((t) => !idsCombustivel.has(t.id)))
+    }
+
+    if (subManutencao) {
+      const { data } = await supabase
+        .from('transacoes')
+        .select('id, data, descricao, valor')
+        .eq('categoria_id', categoriaTransporte.id)
+        .eq('subcategoria_id', subManutencao.id)
+        .eq('status', 'pago')
+        .order('data', { ascending: false })
+      setManutencaoSemVinculo(((data ?? []) as LancamentoNaoVinculado[]).filter((t) => !idsManutencao.has(t.id)))
+    }
+  }, [categorias, subcategorias])
+
+  useEffect(() => {
+    // Só faz sentido rodar depois que categorias/subcategorias chegarem
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    carregarNaoVinculados()
+  }, [carregarNaoVinculados])
 
   const carregar = useCallback(async () => {
     if (!veiculoId) return
@@ -571,6 +653,77 @@ export default function VeiculosPage() {
     setVeiculoId(restantes[0]?.id ?? '')
   }
 
+  function abrirVinculoCombustivel(t: LancamentoNaoVinculado) {
+    setVinculandoCombustivelId(t.id)
+    setFormVinculoCombustivel({ ...FORM_VINCULO_COMBUSTIVEL, veiculo_id: veiculos[0]?.id ?? '' })
+    setMensagem('')
+  }
+
+  async function salvarVinculoCombustivel(t: LancamentoNaoVinculado) {
+    setSalvando(true)
+    setMensagem('')
+
+    const { data: userData } = await supabase.auth.getUser()
+    const userId = userData.user?.id
+
+    const { error } = await supabase.from('abastecimentos').insert({
+      veiculo_id: formVinculoCombustivel.veiculo_id,
+      data: t.data,
+      odometro: parseFloat(formVinculoCombustivel.odometro),
+      litros: parseFloat(formVinculoCombustivel.litros),
+      valor_total: t.valor,
+      tanque_cheio: formVinculoCombustivel.tanque_cheio,
+      tipo_combustivel: formVinculoCombustivel.tipo_combustivel,
+      transacao_id: t.id,
+      dono_id: userId,
+    })
+
+    setSalvando(false)
+    if (error) {
+      setMensagem('Erro ao vincular: ' + error.message)
+      return
+    }
+
+    setVinculandoCombustivelId(null)
+    carregarNaoVinculados()
+    carregar()
+  }
+
+  function abrirVinculoManutencao(t: LancamentoNaoVinculado) {
+    setVinculandoManutencaoId(t.id)
+    setFormVinculoManutencao({ ...FORM_VINCULO_MANUTENCAO, veiculo_id: veiculos[0]?.id ?? '' })
+    setMensagem('')
+  }
+
+  async function salvarVinculoManutencao(t: LancamentoNaoVinculado) {
+    setSalvando(true)
+    setMensagem('')
+
+    const { data: userData } = await supabase.auth.getUser()
+    const userId = userData.user?.id
+
+    const { error } = await supabase.from('manutencoes').insert({
+      veiculo_id: formVinculoManutencao.veiculo_id,
+      data: t.data,
+      odometro: formVinculoManutencao.odometro ? parseFloat(formVinculoManutencao.odometro) : null,
+      tipo: formVinculoManutencao.tipo,
+      descricao: t.descricao,
+      custo: t.valor,
+      transacao_id: t.id,
+      dono_id: userId,
+    })
+
+    setSalvando(false)
+    if (error) {
+      setMensagem('Erro ao vincular: ' + error.message)
+      return
+    }
+
+    setVinculandoManutencaoId(null)
+    carregarNaoVinculados()
+    carregar()
+  }
+
   const veiculoAtual = veiculos.find((v) => v.id === veiculoId)
 
   const classeAba = (valor: string) =>
@@ -632,6 +785,249 @@ export default function VeiculosPage() {
           </BotaoPrimario>
         }
       />
+
+      {/* Lançamentos de combustível ainda sem veículo definido */}
+      {combustivelSemVinculo.length > 0 && (
+        <div className="cartao mb-4">
+          <div className="border-b border-borda p-4">
+            <p className="text-sm font-semibold text-texto">
+              Combustível sem veículo vinculado ({combustivelSemVinculo.length})
+            </p>
+            <p className="mt-0.5 text-xs text-texto-suave">
+              Lançamentos de Transporte / Combustível vindos de outra tela (importação, lançamento
+              manual) que ainda não viraram um abastecimento de um veículo específico.
+            </p>
+          </div>
+          <div className="divide-y divide-borda">
+            {combustivelSemVinculo.map((t) =>
+              vinculandoCombustivelId === t.id ? (
+                <div key={t.id} className="space-y-3 p-4">
+                  <p className="text-sm text-texto">
+                    {t.descricao} · {dataBR(t.data)} ·{' '}
+                    <span className="font-semibold text-despesa">{moeda(t.valor)}</span>
+                  </p>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Campo rotulo="Veículo">
+                      <select
+                        className={classeInput}
+                        value={formVinculoCombustivel.veiculo_id}
+                        onChange={(e) =>
+                          setFormVinculoCombustivel({
+                            ...formVinculoCombustivel,
+                            veiculo_id: e.target.value,
+                          })
+                        }
+                      >
+                        <option value="">Selecione...</option>
+                        {veiculos.map((v) => (
+                          <option key={v.id} value={v.id}>{v.nome}</option>
+                        ))}
+                      </select>
+                    </Campo>
+                    <Campo rotulo="Tipo de combustível">
+                      <select
+                        className={classeInput}
+                        value={formVinculoCombustivel.tipo_combustivel}
+                        onChange={(e) =>
+                          setFormVinculoCombustivel({
+                            ...formVinculoCombustivel,
+                            tipo_combustivel: e.target.value,
+                          })
+                        }
+                      >
+                        {OPCOES_COMBUSTIVEL.map((o) => (
+                          <option key={o.valor} value={o.valor}>{o.rotulo}</option>
+                        ))}
+                      </select>
+                    </Campo>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Campo rotulo="Odômetro (km)">
+                      <input
+                        type="number"
+                        className={classeInput}
+                        value={formVinculoCombustivel.odometro}
+                        onChange={(e) =>
+                          setFormVinculoCombustivel({
+                            ...formVinculoCombustivel,
+                            odometro: e.target.value,
+                          })
+                        }
+                      />
+                    </Campo>
+                    <Campo rotulo="Litros">
+                      <input
+                        type="number"
+                        step="0.01"
+                        className={classeInput}
+                        value={formVinculoCombustivel.litros}
+                        onChange={(e) =>
+                          setFormVinculoCombustivel({
+                            ...formVinculoCombustivel,
+                            litros: e.target.value,
+                          })
+                        }
+                      />
+                    </Campo>
+                  </div>
+                  <label className="flex items-center gap-2 text-sm text-texto">
+                    <input
+                      type="checkbox"
+                      checked={formVinculoCombustivel.tanque_cheio}
+                      onChange={(e) =>
+                        setFormVinculoCombustivel({
+                          ...formVinculoCombustivel,
+                          tanque_cheio: e.target.checked,
+                        })
+                      }
+                    />
+                    Encheu o tanque
+                  </label>
+
+                  <Mensagem texto={mensagem} />
+
+                  <div className="flex justify-end gap-2 pt-1">
+                    <BotaoSecundario type="button" onClick={() => setVinculandoCombustivelId(null)}>
+                      Cancelar
+                    </BotaoSecundario>
+                    <BotaoPrimario
+                      type="button"
+                      disabled={
+                        salvando ||
+                        !formVinculoCombustivel.veiculo_id ||
+                        !formVinculoCombustivel.odometro ||
+                        !formVinculoCombustivel.litros
+                      }
+                      onClick={() => salvarVinculoCombustivel(t)}
+                    >
+                      {salvando ? 'Salvando...' : 'Vincular'}
+                    </BotaoPrimario>
+                  </div>
+                </div>
+              ) : (
+                <div key={t.id} className="flex items-center justify-between gap-3 p-4">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm text-texto">{t.descricao}</p>
+                    <p className="text-xs text-texto-suave">{dataBR(t.data)}</p>
+                  </div>
+                  <span className="whitespace-nowrap text-sm font-semibold text-despesa">
+                    {moeda(t.valor)}
+                  </span>
+                  <button
+                    onClick={() => abrirVinculoCombustivel(t)}
+                    className="text-xs font-medium text-primaria hover:underline"
+                  >
+                    Editar
+                  </button>
+                </div>
+              )
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Lançamentos de manutenção ainda sem veículo definido */}
+      {manutencaoSemVinculo.length > 0 && (
+        <div className="cartao mb-4">
+          <div className="border-b border-borda p-4">
+            <p className="text-sm font-semibold text-texto">
+              Manutenção sem veículo vinculado ({manutencaoSemVinculo.length})
+            </p>
+            <p className="mt-0.5 text-xs text-texto-suave">
+              Lançamentos de Transporte / Manutenção vindos de outra tela que ainda não viraram uma
+              manutenção de um veículo específico.
+            </p>
+          </div>
+          <div className="divide-y divide-borda">
+            {manutencaoSemVinculo.map((t) =>
+              vinculandoManutencaoId === t.id ? (
+                <div key={t.id} className="space-y-3 p-4">
+                  <p className="text-sm text-texto">
+                    {t.descricao} · {dataBR(t.data)} ·{' '}
+                    <span className="font-semibold text-despesa">{moeda(t.valor)}</span>
+                  </p>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Campo rotulo="Veículo">
+                      <select
+                        className={classeInput}
+                        value={formVinculoManutencao.veiculo_id}
+                        onChange={(e) =>
+                          setFormVinculoManutencao({
+                            ...formVinculoManutencao,
+                            veiculo_id: e.target.value,
+                          })
+                        }
+                      >
+                        <option value="">Selecione...</option>
+                        {veiculos.map((v) => (
+                          <option key={v.id} value={v.id}>{v.nome}</option>
+                        ))}
+                      </select>
+                    </Campo>
+                    <Campo rotulo="Tipo de serviço">
+                      <select
+                        className={classeInput}
+                        value={formVinculoManutencao.tipo}
+                        onChange={(e) =>
+                          setFormVinculoManutencao({ ...formVinculoManutencao, tipo: e.target.value })
+                        }
+                      >
+                        {TIPOS_MANUTENCAO.map((t2) => (
+                          <option key={t2} value={t2}>{t2}</option>
+                        ))}
+                      </select>
+                    </Campo>
+                  </div>
+                  <Campo rotulo="Odômetro (km)">
+                    <input
+                      type="number"
+                      className={classeInput}
+                      value={formVinculoManutencao.odometro}
+                      onChange={(e) =>
+                        setFormVinculoManutencao({
+                          ...formVinculoManutencao,
+                          odometro: e.target.value,
+                        })
+                      }
+                    />
+                  </Campo>
+
+                  <Mensagem texto={mensagem} />
+
+                  <div className="flex justify-end gap-2 pt-1">
+                    <BotaoSecundario type="button" onClick={() => setVinculandoManutencaoId(null)}>
+                      Cancelar
+                    </BotaoSecundario>
+                    <BotaoPrimario
+                      type="button"
+                      disabled={salvando || !formVinculoManutencao.veiculo_id}
+                      onClick={() => salvarVinculoManutencao(t)}
+                    >
+                      {salvando ? 'Salvando...' : 'Vincular'}
+                    </BotaoPrimario>
+                  </div>
+                </div>
+              ) : (
+                <div key={t.id} className="flex items-center justify-between gap-3 p-4">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm text-texto">{t.descricao}</p>
+                    <p className="text-xs text-texto-suave">{dataBR(t.data)}</p>
+                  </div>
+                  <span className="whitespace-nowrap text-sm font-semibold text-despesa">
+                    {moeda(t.valor)}
+                  </span>
+                  <button
+                    onClick={() => abrirVinculoManutencao(t)}
+                    className="text-xs font-medium text-primaria hover:underline"
+                  >
+                    Editar
+                  </button>
+                </div>
+              )
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Seleção de veículo */}
       <div className="-mx-1 mb-4 flex gap-2 overflow-x-auto px-1 pb-1">

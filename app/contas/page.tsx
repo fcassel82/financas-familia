@@ -28,6 +28,8 @@ type Conta = {
   dono_id: string
 }
 
+type Membro = { id: string; nome: string }
+
 const TIPOS: { valor: string; rotulo: string }[] = [
   { valor: 'corrente', rotulo: 'Conta corrente' },
   { valor: 'poupanca', rotulo: 'Poupança' },
@@ -56,15 +58,31 @@ export default function ContasPage() {
   const [form, setForm] = useState(FORM_VAZIO)
   const [mensagem, setMensagem] = useState('')
   const [salvando, setSalvando] = useState(false)
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [membros, setMembros] = useState<Membro[]>([])
+  const [membroFiltro, setMembroFiltro] = useState('')
 
   const carregar = useCallback(async () => {
-    const [{ data: contasData }, { data: movimentos }] = await Promise.all([
+    const { data: userData } = await supabase.auth.getUser()
+    const userId = userData.user?.id
+
+    const [{ data: contasData }, { data: movimentos }, { data: perfil }] = await Promise.all([
       supabase.from('contas').select('*').order('nome'),
       supabase.from('transacoes').select('conta_id, valor, tipo').eq('status', 'pago'),
+      userId
+        ? supabase.from('perfis').select('papel').eq('id', userId).single()
+        : Promise.resolve({ data: null }),
     ])
 
     const lista = (contasData ?? []) as Conta[]
     setContas(lista)
+
+    const admin = perfil?.papel === 'admin'
+    setIsAdmin(admin)
+    if (admin) {
+      const { data: membrosData } = await supabase.from('perfis').select('id, nome').order('nome')
+      if (membrosData) setMembros(membrosData)
+    }
 
     const acumulado: Record<string, number> = {}
     for (const conta of lista) acumulado[conta.id] = Number(conta.saldo_inicial)
@@ -82,6 +100,10 @@ export default function ContasPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     carregar()
   }, [carregar])
+
+  const contasVisiveis = membroFiltro
+    ? contas.filter((c) => c.dono_id === membroFiltro)
+    : contas
 
   function abrirNova() {
     setEditandoId(null)
@@ -150,7 +172,7 @@ export default function ContasPage() {
     carregar()
   }
 
-  const saldoTotal = contas.reduce((soma, c) => soma + (saldos[c.id] ?? 0), 0)
+  const saldoTotal = contasVisiveis.reduce((soma, c) => soma + (saldos[c.id] ?? 0), 0)
 
   return (
     <Pagina>
@@ -165,6 +187,23 @@ export default function ContasPage() {
         }
       />
 
+      {isAdmin && membros.length > 0 && (
+        <div className="cartao mb-5 p-4">
+          <Campo rotulo="Exibir contas de">
+            <select
+              className={classeInput}
+              value={membroFiltro}
+              onChange={(e) => setMembroFiltro(e.target.value)}
+            >
+              <option value="">Todos os membros</option>
+              {membros.map((m) => (
+                <option key={m.id} value={m.id}>{m.nome}</option>
+              ))}
+            </select>
+          </Campo>
+        </div>
+      )}
+
       {carregando && <p className="text-sm text-texto-suave">Carregando...</p>}
 
       {!carregando && contas.length === 0 && (
@@ -175,10 +214,17 @@ export default function ContasPage() {
         />
       )}
 
-      {!carregando && contas.length > 0 && (
+      {!carregando && contas.length > 0 && contasVisiveis.length === 0 && (
+        <EstadoVazio
+          titulo="Nenhuma conta deste membro"
+          descricao="Tente outro membro no filtro acima."
+        />
+      )}
+
+      {!carregando && contasVisiveis.length > 0 && (
         <>
           <div className="cartao mb-5 flex items-center justify-between p-4">
-            <span className="text-sm text-texto-suave">Saldo somado de todas as contas</span>
+            <span className="text-sm text-texto-suave">Saldo somado das contas exibidas</span>
             <span
               className={`whitespace-nowrap text-xl font-bold ${saldoTotal >= 0 ? 'text-receita' : 'text-despesa'}`}
             >
@@ -187,7 +233,7 @@ export default function ContasPage() {
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {contas.map((conta) => {
+            {contasVisiveis.map((conta) => {
               const saldo = saldos[conta.id] ?? 0
               return (
                 <div key={conta.id} className="cartao p-4">
