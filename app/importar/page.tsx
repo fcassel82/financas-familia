@@ -9,6 +9,7 @@ import { parseData, parseValor } from '@/lib/parseExtrato'
 import { decodificarOfx, parsearOfx, type LancamentoOfx } from '@/lib/parseOfx'
 import { sugerirCategoria } from '@/lib/categorizarProduto'
 import type { NotaFiscal } from '@/lib/parseNfce'
+import { verificarDuplicatasEmLote, type Duplicata } from '@/lib/verificarDuplicata'
 import { IconeImportar } from '@/components/Icones'
 import {
   BotaoPrimario,
@@ -16,6 +17,7 @@ import {
   CabecalhoPagina,
   Campo,
   Mensagem,
+  Modal,
   Pagina,
   classeInput,
 } from '@/components/ui'
@@ -115,6 +117,9 @@ export default function ImportarPage() {
   const [subcategoriaEmMassa, setSubcategoriaEmMassa] = useState('')
   const [mensagem, setMensagem] = useState('')
   const [salvando, setSalvando] = useState(false)
+  const [duplicatasImportacao, setDuplicatasImportacao] = useState<
+    { linha: LinhaImportada; duplicatas: Duplicata[] }[] | null
+  >(null)
 
   useEffect(() => {
     async function carregarCategorias() {
@@ -402,8 +407,35 @@ export default function ImportarPage() {
   }
 
   async function handleSalvar() {
+    setMensagem('')
+
+    const linhasIncluidas = linhas.filter((l) => l.incluir)
+    if (linhasIncluidas.length === 0) {
+      setMensagem('Nenhuma linha marcada para importar.')
+      return
+    }
+
+    setSalvando(true)
+    const mapaDuplicatas = await verificarDuplicatasEmLote(linhasIncluidas)
+    setSalvando(false)
+
+    if (mapaDuplicatas.size > 0) {
+      setDuplicatasImportacao(
+        Array.from(mapaDuplicatas.entries()).map(([indice, duplicatas]) => ({
+          linha: linhasIncluidas[indice],
+          duplicatas,
+        }))
+      )
+      return
+    }
+
+    await salvarDeFato()
+  }
+
+  async function salvarDeFato() {
     setSalvando(true)
     setMensagem('')
+    setDuplicatasImportacao(null)
 
     const { data: userData } = await supabase.auth.getUser()
     const userId = userData.user?.id
@@ -982,6 +1014,56 @@ export default function ImportarPage() {
           </div>
         </div>
       )}
+
+      <Modal
+        aberto={!!duplicatasImportacao}
+        titulo="Alguns itens parecem já estar lançados"
+        onFechar={() => setDuplicatasImportacao(null)}
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-texto-suave">
+            {duplicatasImportacao?.length} de {linhas.filter((l) => l.incluir).length} itens
+            marcados para importar já têm um lançamento igual — mesma data, descrição, valor e
+            tipo:
+          </p>
+
+          <ul className="max-h-64 divide-y divide-borda overflow-y-auto rounded-lg border border-borda">
+            {duplicatasImportacao?.slice(0, 15).map((d, i) => (
+              <li key={i} className="flex items-center justify-between gap-3 p-3 text-sm">
+                <div className="min-w-0">
+                  <p className="truncate text-texto">{d.linha.descricao}</p>
+                  <p className="text-xs text-texto-suave">{dataBR(d.linha.data)}</p>
+                </div>
+                <span
+                  className={`shrink-0 font-semibold ${
+                    d.linha.tipo === 'receita' ? 'text-receita' : 'text-despesa'
+                  }`}
+                >
+                  {moeda(d.linha.valor)}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {duplicatasImportacao && duplicatasImportacao.length > 15 && (
+            <p className="text-xs text-texto-suave">
+              ...e mais {duplicatasImportacao.length - 15}.
+            </p>
+          )}
+
+          <p className="text-sm text-texto-suave">
+            Quer importar mesmo assim ou cancelar para revisar?
+          </p>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <BotaoSecundario type="button" onClick={() => setDuplicatasImportacao(null)}>
+              Cancelar
+            </BotaoSecundario>
+            <BotaoPrimario type="button" onClick={salvarDeFato} disabled={salvando}>
+              {salvando ? 'Salvando...' : 'Importar mesmo assim'}
+            </BotaoPrimario>
+          </div>
+        </div>
+      </Modal>
     </Pagina>
   )
 }

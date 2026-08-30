@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
 import { hojeISO, moeda, somarMeses } from '@/lib/formato'
 import { sugerirCategoriaLancamento } from '@/lib/sugerirCategoriaHistorico'
+import { verificarDuplicata, type Duplicata } from '@/lib/verificarDuplicata'
 import { IconeLixeira } from '@/components/Icones'
 import {
   BotaoPrimario,
@@ -12,6 +13,7 @@ import {
   CabecalhoPagina,
   Campo,
   Mensagem,
+  Modal,
   Pagina,
   classeInput,
 } from '@/components/ui'
@@ -87,6 +89,7 @@ function FormularioLancamento() {
   const [salvando, setSalvando] = useState(false)
   const [apagando, setApagando] = useState(false)
   const [carregando, setCarregando] = useState(!!idEdicao)
+  const [duplicatas, setDuplicatas] = useState<Duplicata[] | null>(null)
 
   useEffect(() => {
     async function carregarListas() {
@@ -145,12 +148,8 @@ function FormularioLancamento() {
     if (sugestao.subcategoriaId) setSubcategoriaId(sugestao.subcategoriaId)
   }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    setMensagem('')
-    setSalvando(true)
-
-    const registro = {
+  function montarRegistro() {
+    return {
       data,
       descricao,
       categoria_id: categoriaId || null,
@@ -161,18 +160,48 @@ function FormularioLancamento() {
       conta_id: pagoCom === 'conta' ? contaId || null : null,
       cartao_id: pagoCom === 'cartao' ? cartaoId || null : null,
     }
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setMensagem('')
 
     if (idEdicao) {
-      const { error } = await supabase.from('transacoes').update(registro).eq('id', idEdicao)
-      setSalvando(false)
-      if (error) {
-        setMensagem('Erro ao salvar: ' + error.message)
-        return
-      }
-      router.push('/transacoes')
+      await salvarEdicao()
       return
     }
 
+    // Edição não entra nessa checagem — quem já existe é o próprio
+    // lançamento sendo editado, então soaria como duplicata dele mesmo
+    setSalvando(true)
+    const encontrados = await verificarDuplicata(data, descricao, parseFloat(valor), tipo)
+    setSalvando(false)
+
+    if (encontrados.length > 0) {
+      setDuplicatas(encontrados)
+      return
+    }
+
+    await salvarNovoLancamento()
+  }
+
+  async function salvarEdicao() {
+    setSalvando(true)
+    const { error } = await supabase.from('transacoes').update(montarRegistro()).eq('id', idEdicao)
+    setSalvando(false)
+    if (error) {
+      setMensagem('Erro ao salvar: ' + error.message)
+      return
+    }
+    router.push('/transacoes')
+  }
+
+  async function salvarNovoLancamento() {
+    setSalvando(true)
+    setMensagem('')
+    setDuplicatas(null)
+
+    const registro = montarRegistro()
     const { data: userData } = await supabase.auth.getUser()
     const userId = userData.user?.id
 
@@ -469,6 +498,50 @@ function FormularioLancamento() {
           </div>
         </div>
       </form>
+
+      <Modal
+        aberto={!!duplicatas}
+        titulo="Este lançamento parece repetido"
+        onFechar={() => setDuplicatas(null)}
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-texto-suave">
+            Já {duplicatas?.length === 1 ? 'existe um lançamento' : `existem ${duplicatas?.length} lançamentos`}{' '}
+            com a mesma data, descrição, valor e tipo:
+          </p>
+
+          <ul className="divide-y divide-borda rounded-lg border border-borda">
+            {duplicatas?.map((d) => (
+              <li key={d.id} className="flex items-center justify-between gap-3 p-3 text-sm">
+                <div className="min-w-0">
+                  <p className="truncate text-texto">{d.descricao}</p>
+                  <p className="text-xs text-texto-suave">{d.data.split('-').reverse().join('/')}</p>
+                </div>
+                <span
+                  className={`shrink-0 font-semibold ${
+                    d.tipo === 'receita' ? 'text-receita' : 'text-despesa'
+                  }`}
+                >
+                  {moeda(d.valor)}
+                </span>
+              </li>
+            ))}
+          </ul>
+
+          <p className="text-sm text-texto-suave">
+            Quer lançar mesmo assim ou cancelar para revisar?
+          </p>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <BotaoSecundario type="button" onClick={() => setDuplicatas(null)}>
+              Cancelar
+            </BotaoSecundario>
+            <BotaoPrimario type="button" onClick={salvarNovoLancamento} disabled={salvando}>
+              {salvando ? 'Salvando...' : 'Lançar mesmo assim'}
+            </BotaoPrimario>
+          </div>
+        </div>
+      </Modal>
     </Pagina>
   )
 }
