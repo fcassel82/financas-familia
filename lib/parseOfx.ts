@@ -80,3 +80,44 @@ export function parsearOfx(conteudo: string): LancamentoOfx[] {
 
   return lancamentos
 }
+
+export type ItemConciliacao = {
+  chave: string
+  data: string
+  descricao: string
+  valor: number
+  tipo: 'receita' | 'despesa'
+  transacaoId: string | null
+}
+
+export type ExistenteParaConciliar = { id: string; data: string; valor: number; tipo: string }
+
+/**
+ * Casa cada linha de um extrato importado (conta ou fatura de cartão) com um
+ * lançamento já cadastrado (mesma data, mesmo valor, mesmo tipo). Um
+ * lançamento já usado não é reaproveitado para casar com uma segunda linha.
+ */
+export function conciliarComExistentes(
+  itensOfx: LancamentoOfx[],
+  existentes: ExistenteParaConciliar[]
+): ItemConciliacao[] {
+  const usados = new Set<string>()
+  return itensOfx.map((item, indice) => {
+    const encontrado = existentes.find(
+      (e) =>
+        !usados.has(e.id) &&
+        e.data === item.data &&
+        e.tipo === item.tipo &&
+        Math.abs(Number(e.valor) - item.valor) < 0.005
+    )
+    if (encontrado) usados.add(encontrado.id)
+    return {
+      chave: item.idBanco || `${item.data}-${item.valor}-${item.tipo}-${indice}`,
+      data: item.data,
+      descricao: item.descricao,
+      valor: item.valor,
+      tipo: item.tipo,
+      transacaoId: encontrado?.id ?? null,
+    }
+  })
+}

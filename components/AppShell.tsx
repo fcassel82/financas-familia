@@ -41,6 +41,7 @@ const NAV_PRINCIPAL: ItemNav[] = [
 const NAV_ANALISE: ItemNav[] = [
   { rota: '/previsao', rotulo: 'Previsão', Icone: IconeCofre },
   { rota: '/extrato', rotulo: 'Extrato', Icone: IconeLista },
+  { rota: '/faturas', rotulo: 'Faturas', Icone: IconeCartao },
   { rota: '/transferencias', rotulo: 'Transferências', Icone: IconeSeta },
 ]
 
