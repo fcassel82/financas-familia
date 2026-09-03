@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import Papa from 'papaparse'
 import { supabase } from '@/lib/supabaseClient'
 import {
   chaveMes,
@@ -18,8 +19,11 @@ import {
   parsearOfx,
   type ExistenteParaConciliar,
   type ItemConciliacao,
+  type LancamentoOfx,
 } from '@/lib/parseOfx'
+import { linhasCsvParaLancamentos, type ModoValorCsv } from '@/lib/parseCsvExtrato'
 import { IconeCartao, IconeImportar } from '@/components/Icones'
+import { ImportarCsvModal } from '@/components/ImportarCsvModal'
 import {
   BotaoPrimario,
   BotaoSecundario,
@@ -366,7 +370,7 @@ export default function FaturasPage() {
     carregar()
   }
 
-  // ---------- Importar fatura por OFX (conciliação) ----------
+  // ---------- Importar fatura por OFX ou CSV (conciliação) ----------
   const [cartaoOfx, setCartaoOfx] = useState<string | null>(null)
   const [itensConciliacao, setItensConciliacao] = useState<ItemConciliacao[] | null>(null)
   const [importando, setImportando] = useState(false)
@@ -374,8 +378,38 @@ export default function FaturasPage() {
   const [formLancamento, setFormLancamento] = useState(FORM_LANCAMENTO_VAZIO)
   const [salvandoLinha, setSalvandoLinha] = useState(false)
   const inputArquivoRef = useRef<HTMLInputElement>(null)
+  const [csvBruto, setCsvBruto] = useState<{ linhas: Record<string, string>[]; colunas: string[] } | null>(
+    null
+  )
 
-  async function handleArquivoOfx(e: React.ChangeEvent<HTMLInputElement>, cartao: Cartao) {
+  /** Casa os lançamentos importados (de OFX ou CSV) com o que já está pago neste cartão */
+  async function conciliarImportados(cartaoId: string, itensImportados: LancamentoOfx[]) {
+    if (itensImportados.length === 0) {
+      setItensConciliacao(null)
+      setMensagem('Nenhum lançamento encontrado neste arquivo.')
+      return
+    }
+
+    const datas = itensImportados.map((i) => i.data).sort()
+    const { data: existentes, error } = await supabase
+      .from('transacoes')
+      .select('id, data, valor, tipo')
+      .eq('cartao_id', cartaoId)
+      .eq('status', 'pago')
+      .gte('data', datas[0])
+      .lte('data', datas[datas.length - 1])
+
+    if (error) {
+      setMensagem('Erro ao conciliar: ' + error.message)
+      return
+    }
+
+    const itens = conciliarComExistentes(itensImportados, (existentes ?? []) as ExistenteParaConciliar[])
+    itens.sort((a, b) => a.data.localeCompare(b.data))
+    setItensConciliacao(itens)
+  }
+
+  async function handleArquivo(e: React.ChangeEvent<HTMLInputElement>, cartao: Cartao) {
     const arquivo = e.target.files?.[0]
     e.target.value = ''
     if (!arquivo) return
@@ -385,39 +419,46 @@ export default function FaturasPage() {
     setCartaoOfx(cartao.id)
     setLinhaAberta(null)
 
+    const nome = arquivo.name.toLowerCase()
+
+    if (nome.endsWith('.csv')) {
+      Papa.parse<Record<string, string>>(arquivo, {
+        header: true,
+        skipEmptyLines: true,
+        complete: (resultado) => {
+          setCsvBruto({ linhas: resultado.data, colunas: resultado.meta.fields || [] })
+          setImportando(false)
+        },
+        error: () => {
+          setMensagem('Não foi possível ler este arquivo CSV.')
+          setImportando(false)
+        },
+      })
+      return
+    }
+
     try {
       const buffer = await arquivo.arrayBuffer()
       const itensOfx = parsearOfx(decodificarOfx(buffer))
-
-      if (itensOfx.length === 0) {
-        setItensConciliacao(null)
-        setMensagem('Nenhum lançamento encontrado neste arquivo.')
-        setImportando(false)
-        return
-      }
-
-      const datas = itensOfx.map((i) => i.data).sort()
-      const { data: existentes, error } = await supabase
-        .from('transacoes')
-        .select('id, data, valor, tipo')
-        .eq('cartao_id', cartao.id)
-        .eq('status', 'pago')
-        .gte('data', datas[0])
-        .lte('data', datas[datas.length - 1])
-
-      if (error) {
-        setMensagem('Erro ao conciliar: ' + error.message)
-        setImportando(false)
-        return
-      }
-
-      const itens = conciliarComExistentes(itensOfx, (existentes ?? []) as ExistenteParaConciliar[])
-      itens.sort((a, b) => a.data.localeCompare(b.data))
-      setItensConciliacao(itens)
+      await conciliarImportados(cartao.id, itensOfx)
     } catch (err) {
       console.error('Falha ao ler fatura:', err)
       setMensagem('Não foi possível ler este arquivo. Confira se é um OFX válido.')
     }
+    setImportando(false)
+  }
+
+  async function confirmarMapeamentoCsv(
+    colData: string,
+    colDescricao: string,
+    colValor: string,
+    modo: ModoValorCsv
+  ) {
+    if (!csvBruto || !cartaoOfx) return
+    const itensCsv = linhasCsvParaLancamentos(csvBruto.linhas, { colData, colDescricao, colValor, modo })
+    setCsvBruto(null)
+    setImportando(true)
+    await conciliarImportados(cartaoOfx, itensCsv)
     setImportando(false)
   }
 
@@ -714,14 +755,14 @@ export default function FaturasPage() {
                     </div>
                     <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-white/15 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-white/25">
                       <IconeImportar className="h-3.5 w-3.5" />
-                      {importando && cartaoOfx === cartao.id ? 'Lendo...' : 'Importar fatura (OFX)'}
+                      {importando && cartaoOfx === cartao.id ? 'Lendo...' : 'Importar fatura (OFX/CSV)'}
                       <input
                         ref={inputArquivoRef}
                         type="file"
-                        accept=".ofx"
+                        accept=".ofx,.csv"
                         className="hidden"
                         disabled={importando}
-                        onChange={(e) => handleArquivoOfx(e, cartao)}
+                        onChange={(e) => handleArquivo(e, cartao)}
                       />
                     </label>
                   </div>
@@ -810,6 +851,15 @@ export default function FaturasPage() {
           </form>
         )}
       </Modal>
+
+      {csvBruto && (
+        <ImportarCsvModal
+          colunas={csvBruto.colunas}
+          totalLinhas={csvBruto.linhas.length}
+          onFechar={() => setCsvBruto(null)}
+          onConfirmar={confirmarMapeamentoCsv}
+        />
+      )}
     </Pagina>
   )
 }
