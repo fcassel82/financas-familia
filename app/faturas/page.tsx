@@ -13,6 +13,7 @@ import {
   textoVencimento,
 } from '@/lib/formato'
 import { cicloDaCompetencia, competenciaDaCompra, deslocarCompetencia } from '@/lib/faturaCartao'
+import { dividirEmParcelas } from '@/lib/parcelas'
 import {
   conciliarComExistentes,
   decodificarOfx,
@@ -165,7 +166,14 @@ function BadgeStatus({ fatura }: { fatura: Fatura }) {
   )
 }
 
-const FORM_LANCAMENTO_VAZIO = { descricao: '', categoria_id: '', subcategoria_id: '', escopo: 'pessoal' }
+const FORM_LANCAMENTO_VAZIO = {
+  descricao: '',
+  categoria_id: '',
+  subcategoria_id: '',
+  escopo: 'pessoal',
+  parcelar: false,
+  parcelas: '2',
+}
 
 export default function FaturasPage() {
   const [cartoes, setCartoes] = useState<Cartao[]>([])
@@ -472,23 +480,28 @@ export default function FaturasPage() {
     setSalvandoLinha(true)
     setMensagem('')
 
-    const { error, data } = await supabase
-      .from('transacoes')
-      .insert({
-        data: item.data,
-        descricao: formLancamento.descricao,
-        categoria_id: formLancamento.categoria_id || null,
-        subcategoria_id: formLancamento.subcategoria_id || null,
-        valor: item.valor,
-        tipo: item.tipo,
-        escopo: formLancamento.escopo,
-        cartao_id: cartaoOfx,
-        status: 'pago',
-        dono_id: userId,
-        lancado_por: userId,
-      })
-      .select('id')
-      .single()
+    const base = {
+      data: item.data,
+      descricao: formLancamento.descricao,
+      categoria_id: formLancamento.categoria_id || null,
+      subcategoria_id: formLancamento.subcategoria_id || null,
+      valor: item.valor,
+      tipo: item.tipo,
+      escopo: formLancamento.escopo,
+      cartao_id: cartaoOfx,
+      status: 'pago',
+      dono_id: userId,
+      lancado_por: userId,
+    }
+
+    const quantidadeParcelas = Math.max(2, parseInt(formLancamento.parcelas || '2', 10))
+    const recorrenciaId = crypto.randomUUID()
+    const registros =
+      formLancamento.parcelar && quantidadeParcelas >= 2
+        ? dividirEmParcelas(base, quantidadeParcelas).map((r) => ({ ...r, recorrencia_id: recorrenciaId }))
+        : [base]
+
+    const { error, data } = await supabase.from('transacoes').insert(registros).select('id')
 
     setSalvandoLinha(false)
     if (error) {
@@ -496,8 +509,10 @@ export default function FaturasPage() {
       return
     }
 
+    // A linha do extrato do cartão só corresponde à 1ª parcela — as seguintes
+    // são provisionamento das próximas faturas, sem lançamento importado equivalente.
     setItensConciliacao((atual) =>
-      (atual ?? []).map((i) => (i.chave === item.chave ? { ...i, transacaoId: data.id } : i))
+      (atual ?? []).map((i) => (i.chave === item.chave ? { ...i, transacaoId: data[0].id } : i))
     )
     setLinhaAberta(null)
     setFormLancamento(FORM_LANCAMENTO_VAZIO)
@@ -685,6 +700,47 @@ export default function FaturasPage() {
                               <option value="pessoal">Pessoal (só eu vejo)</option>
                             </select>
                           </Campo>
+
+                          {item.tipo === 'despesa' && (
+                            <div className="rounded-lg border border-borda p-3">
+                              <label className="flex items-center gap-2 text-sm text-texto">
+                                <input
+                                  type="checkbox"
+                                  checked={formLancamento.parcelar}
+                                  onChange={(e) =>
+                                    setFormLancamento({ ...formLancamento, parcelar: e.target.checked })
+                                  }
+                                />
+                                Compra parcelada
+                              </label>
+
+                              {formLancamento.parcelar && (
+                                <div className="mt-3">
+                                  <Campo rotulo="Número de parcelas">
+                                    <input
+                                      type="number"
+                                      min="2"
+                                      max="120"
+                                      className={classeInput}
+                                      value={formLancamento.parcelas}
+                                      onChange={(e) =>
+                                        setFormLancamento({ ...formLancamento, parcelas: e.target.value })
+                                      }
+                                    />
+                                  </Campo>
+                                  {parseInt(formLancamento.parcelas || '0', 10) >= 2 && (
+                                    <p className="mt-1.5 text-xs text-texto-suave">
+                                      {formLancamento.parcelas}x de aproximadamente{' '}
+                                      {moeda(item.valor / parseInt(formLancamento.parcelas, 10))}, uma por
+                                      mês a partir de {dataBR(item.data)}. O valor total de {moeda(item.valor)}{' '}
+                                      é mantido — os centavos da divisão vão para a última parcela, e as
+                                      parcelas futuras já entram provisionadas nas próximas faturas.
+                                    </p>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          )}
 
                           <div className="flex justify-end gap-2 border-t border-borda pt-3">
                             <BotaoSecundario type="button" onClick={() => setLinhaAberta(null)}>
