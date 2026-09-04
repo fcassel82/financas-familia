@@ -143,7 +143,7 @@ export default function TransacoesPage() {
     let query = supabase
       .from('transacoes')
       .select(
-        'id, data, descricao, valor, tipo, escopo, dono_id, categoria_id, subcategoria_id, conta_id, cartao_id, categorias(nome), subcategorias(nome), contas(nome, cor), cartoes_credito(nome, cor)'
+        'id, data, descricao, valor, tipo, escopo, dono_id, categoria_id, subcategoria_id, conta_id, cartao_id, categorias(nome), subcategorias(nome), contas(nome, cor), cartoes_credito!cartao_id(nome, cor)'
       )
 
     // "Todos" junta familiar + meus pessoais; as duas abas isoladas filtram por escopo

@@ -261,7 +261,7 @@ export default function DashboardPage() {
     let query = supabase
       .from('transacoes')
       .select(
-        'data, valor, tipo, escopo, dono_id, categoria_id, subcategoria_id, categorias(nome), contas(nome), cartoes_credito(nome)'
+        'data, valor, tipo, escopo, dono_id, categoria_id, subcategoria_id, categorias(nome), contas(nome), cartoes_credito!cartao_id(nome)'
       )
       // Só o que já foi efetivado: contas a pagar em aberto não são gasto realizado
       .eq('status', 'pago')
