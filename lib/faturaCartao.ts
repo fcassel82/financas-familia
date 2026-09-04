@@ -74,3 +74,44 @@ export function deslocarCompetencia(competencia: string, meses: number): string 
   const d = new Date(ano, mes - 1 + meses, 1)
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
 }
+
+/** Diferença em dias entre duas datas ISO (sem erro de fuso) */
+function diasEntreIso(a: string, b: string): number {
+  const [a1, a2, a3] = a.split('-').map(Number)
+  const [b1, b2, b3] = b.split('-').map(Number)
+  const da = new Date(a1, a2 - 1, a3)
+  const db = new Date(b1, b2 - 1, b3)
+  return Math.round((da.getTime() - db.getTime()) / 86_400_000)
+}
+
+export type PendenciaFatura = {
+  id: string
+  cartaoNome: string
+  competencia: string
+  valor: number
+  data_vencimento: string
+}
+
+/** Quantos dias de diferença entre o débito e o vencimento ainda contam como "é a mesma fatura" */
+const JANELA_DIAS_PAGAMENTO_FATURA = 5
+
+/**
+ * Entre as faturas de cartão ainda em aberto, acha a que provavelmente é paga por
+ * este débito do extrato da conta: mesmo valor, vencimento a poucos dias da data
+ * do débito. Uma fatura já usada por outra linha do mesmo extrato não é reaproveitada.
+ */
+export function casarComFaturaAberta(
+  item: { data: string; valor: number; tipo: 'receita' | 'despesa' },
+  pendencias: PendenciaFatura[],
+  usadas: Set<string>
+): PendenciaFatura | null {
+  if (item.tipo !== 'despesa') return null
+  return (
+    pendencias.find(
+      (p) =>
+        !usadas.has(p.id) &&
+        Math.abs(p.valor - item.valor) < 0.005 &&
+        Math.abs(diasEntreIso(item.data, p.data_vencimento)) <= JANELA_DIAS_PAGAMENTO_FATURA
+    ) ?? null
+  )
+}

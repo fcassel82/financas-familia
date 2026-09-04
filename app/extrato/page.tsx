@@ -20,6 +20,7 @@ import {
   type LancamentoOfx,
 } from '@/lib/parseOfx'
 import { linhasCsvParaLancamentos, type ModoValorCsv } from '@/lib/parseCsvExtrato'
+import { casarComFaturaAberta, type PendenciaFatura } from '@/lib/faturaCartao'
 import { IconeImportar, IconeSeta } from '@/components/Icones'
 import { ImportarCsvModal } from '@/components/ImportarCsvModal'
 import {
@@ -34,6 +35,7 @@ import {
 } from '@/components/ui'
 
 type Conta = { id: string; nome: string; cor: string | null; saldo_inicial: number }
+type CartaoPagoPorConta = { id: string; nome: string; conta_pagamento_id: string | null }
 
 type Movimento = {
   id: string
@@ -52,6 +54,7 @@ const FORM_LANCAMENTO_VAZIO = { descricao: '', categoria_id: '', subcategoria_id
 
 export default function ExtratoPage() {
   const [contas, setContas] = useState<Conta[]>([])
+  const [cartoes, setCartoes] = useState<CartaoPagoPorConta[]>([])
   const [contaId, setContaId] = useState('')
   const [mes, setMes] = useState(chaveMes(new Date()))
   const [movimentos, setMovimentos] = useState<Movimento[]>([])
@@ -70,6 +73,10 @@ export default function ExtratoPage() {
   const [salvandoLinha, setSalvandoLinha] = useState(false)
   const inputArquivoRef = useRef<HTMLInputElement>(null)
 
+  // Débitos do extrato que parecem ser o pagamento de uma fatura de cartão em aberto
+  const [sugestoesFatura, setSugestoesFatura] = useState<Map<string, PendenciaFatura>>(new Map())
+  const [vinculandoFaturaChave, setVinculandoFaturaChave] = useState<string | null>(null)
+
   const [csvBruto, setCsvBruto] = useState<{ linhas: Record<string, string>[]; colunas: string[] } | null>(
     null
   )
@@ -79,15 +86,17 @@ export default function ExtratoPage() {
       const { data: userData } = await supabase.auth.getUser()
       if (userData.user?.id) setUserId(userData.user.id)
 
-      const [{ data: cts }, { data: cats }, { data: subs }] = await Promise.all([
+      const [{ data: cts }, { data: cats }, { data: subs }, { data: crts }] = await Promise.all([
         supabase.from('contas').select('id, nome, cor, saldo_inicial').order('nome'),
         supabase.from('categorias').select('id, nome, tipo').order('nome'),
         supabase.from('subcategorias').select('id, categoria_id, nome').order('nome'),
+        supabase.from('cartoes_credito').select('id, nome, conta_pagamento_id'),
       ])
       const lista = (cts ?? []) as Conta[]
       setContas(lista)
       setCategorias((cats ?? []) as Categoria[])
       setSubcategorias((subs ?? []) as Subcategoria[])
+      setCartoes((crts ?? []) as CartaoPagoPorConta[])
       if (lista.length) setContaId((atual) => atual || lista[0].id)
       else setCarregando(false)
     }
@@ -139,6 +148,7 @@ export default function ExtratoPage() {
     setContaId(novaContaId)
     // O extrato importado é específico da conta anterior, não faz mais sentido aqui
     setItensConciliacao(null)
+    setSugestoesFatura(new Map())
     setMensagemConciliacao('')
     setLinhaAberta(null)
   }
@@ -187,6 +197,69 @@ export default function ExtratoPage() {
     const itens = conciliarComExistentes(itensImportados, (existentes ?? []) as ExistenteParaConciliar[])
     itens.sort((a, b) => a.data.localeCompare(b.data))
     setItensConciliacao(itens)
+    setSugestoesFatura(await buscarSugestoesFatura(itens))
+  }
+
+  /**
+   * Para os débitos que não bateram com nenhum lançamento já cadastrado, verifica se
+   * algum é o pagamento de uma fatura de cartão em aberto (mesmo valor, perto do
+   * vencimento) — só entre os cartões cuja "conta usada no pagamento" é esta.
+   */
+  async function buscarSugestoesFatura(itens: ItemConciliacao[]): Promise<Map<string, PendenciaFatura>> {
+    const idsCartoesDaConta = cartoes.filter((c) => c.conta_pagamento_id === contaId).map((c) => c.id)
+    if (idsCartoesDaConta.length === 0) return new Map()
+
+    const { data: pendentes } = await supabase
+      .from('transacoes')
+      .select('id, valor, data_vencimento, fatura_cartao_id, fatura_competencia')
+      .eq('status', 'pendente')
+      .in('fatura_cartao_id', idsCartoesDaConta)
+
+    const candidatas: PendenciaFatura[] = (pendentes ?? []).map((p) => ({
+      id: p.id,
+      cartaoNome: cartoes.find((c) => c.id === p.fatura_cartao_id)?.nome ?? 'cartão',
+      competencia: String(p.fatura_competencia).slice(0, 7),
+      valor: Number(p.valor),
+      data_vencimento: p.data_vencimento,
+    }))
+
+    const usadas = new Set<string>()
+    const sugestoes = new Map<string, PendenciaFatura>()
+    for (const item of itens) {
+      if (item.transacaoId) continue
+      const achada = casarComFaturaAberta(item, candidatas, usadas)
+      if (achada) {
+        usadas.add(achada.id)
+        sugestoes.set(item.chave, achada)
+      }
+    }
+    return sugestoes
+  }
+
+  async function vincularPagamentoFatura(item: ItemConciliacao, pendencia: PendenciaFatura) {
+    setVinculandoFaturaChave(item.chave)
+    setMensagemConciliacao('')
+
+    const { error } = await supabase
+      .from('transacoes')
+      .update({ status: 'pago', data: item.data, valor: item.valor, conta_id: contaId })
+      .eq('id', pendencia.id)
+
+    setVinculandoFaturaChave(null)
+    if (error) {
+      setMensagemConciliacao('Erro ao vincular pagamento da fatura: ' + error.message)
+      return
+    }
+
+    setItensConciliacao((atual) =>
+      (atual ?? []).map((i) => (i.chave === item.chave ? { ...i, transacaoId: pendencia.id } : i))
+    )
+    setSugestoesFatura((atual) => {
+      const novo = new Map(atual)
+      novo.delete(item.chave)
+      return novo
+    })
+    carregar()
   }
 
   async function handleArquivo(e: React.ChangeEvent<HTMLInputElement>) {
@@ -490,6 +563,47 @@ export default function ExtratoPage() {
                               {salvandoLinha ? 'Salvando...' : 'Salvar lançamento'}
                             </BotaoPrimario>
                           </div>
+                        </div>
+                      </li>
+                    )
+                  }
+
+                  const sugestaoFatura = !conciliado ? sugestoesFatura.get(item.chave) : undefined
+
+                  if (sugestaoFatura) {
+                    return (
+                      <li key={item.chave} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm text-texto">{item.descricao}</p>
+                          <p className="text-xs text-texto-suave">{dataBR(item.data)}</p>
+                          <p className="mt-1 text-xs text-primaria">
+                            Parece o pagamento da fatura {sugestaoFatura.cartaoNome} ·{' '}
+                            {rotuloMesLongo(sugestaoFatura.competencia)}
+                          </p>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-3">
+                          <span className="whitespace-nowrap text-sm font-semibold text-despesa">
+                            − {moeda(item.valor)}
+                          </span>
+                          <button
+                            onClick={() =>
+                              setSugestoesFatura((atual) => {
+                                const novo = new Map(atual)
+                                novo.delete(item.chave)
+                                return novo
+                              })
+                            }
+                            className="whitespace-nowrap text-xs font-medium text-texto-suave hover:underline"
+                          >
+                            Não é isso
+                          </button>
+                          <BotaoPrimario
+                            type="button"
+                            disabled={vinculandoFaturaChave === item.chave}
+                            onClick={() => vincularPagamentoFatura(item, sugestaoFatura)}
+                          >
+                            {vinculandoFaturaChave === item.chave ? 'Vinculando...' : 'Vincular pagamento'}
+                          </BotaoPrimario>
                         </div>
                       </li>
                     )
