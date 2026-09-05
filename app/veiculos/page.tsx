@@ -27,6 +27,14 @@ type Veiculo = {
   combustivel: string | null
   cor: string | null
   escopo: string
+  valor_pago: number | null
+  fipe_marca_codigo: string | null
+  fipe_modelo_codigo: string | null
+  fipe_ano_codigo: string | null
+  fipe_descricao: string | null
+  codigo_fipe: string | null
+  valor_fipe: number | null
+  fipe_atualizado_em: string | null
 }
 
 type Abastecimento = AbastecimentoParaCalculo & { posto: string | null; transacao_id: string | null }
@@ -84,6 +92,14 @@ const FORM_VEICULO = {
   combustivel: 'flex',
   cor: CORES[0],
   escopo: 'familiar',
+  valor_pago: '',
+  // Preenchidos pela consulta à tabela FIPE
+  fipe_marca_codigo: '',
+  fipe_modelo_codigo: '',
+  fipe_ano_codigo: '',
+  fipe_descricao: '',
+  codigo_fipe: '',
+  valor_fipe: '',
 }
 
 const FORM_ABASTECIMENTO = {
@@ -131,6 +147,237 @@ const FORM_VINCULO_MANUTENCAO = {
 }
 
 type FormVeiculo = typeof FORM_VEICULO
+
+type ItemFipe = { codigo: string; nome: string }
+
+/**
+ * Consulta a tabela FIPE em cascata (marca → modelo → ano). Ao escolher o ano
+ * o valor vem sozinho: é o "preenchido automaticamente pelo sistema". Os
+ * códigos ficam salvos no veículo para dar pra reconsultar depois, já que a
+ * FIPE muda todo mês.
+ */
+function SeletorFipe({
+  form,
+  onChangeForm,
+}: {
+  form: FormVeiculo
+  onChangeForm: (form: FormVeiculo) => void
+}) {
+  const [marcas, setMarcas] = useState<ItemFipe[]>([])
+  // Guardam a qual código a lista pertence, para não exibir por um instante os
+  // modelos da marca anterior enquanto a nova consulta ainda está em voo
+  const [modelos, setModelos] = useState<{ para: string; itens: ItemFipe[] }>({ para: '', itens: [] })
+  const [anos, setAnos] = useState<{ para: string; itens: ItemFipe[] }>({ para: '', itens: [] })
+  const [buscandoValor, setBuscandoValor] = useState(false)
+  const [erro, setErro] = useState('')
+
+  const consultar = useCallback(async (params: Record<string, string>) => {
+    const { data } = await supabase.auth.getSession()
+    const token = data.session?.access_token
+    const resposta = await fetch(`/api/fipe?${new URLSearchParams(params)}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    })
+    const json = await resposta.json()
+    if (!resposta.ok) throw new Error(json.error ?? 'Falha ao consultar a FIPE.')
+    return json
+  }, [])
+
+  const marcaCodigo = form.fipe_marca_codigo
+  const modeloCodigo = form.fipe_modelo_codigo
+
+  useEffect(() => {
+    let cancelado = false
+    consultar({ recurso: 'marcas' })
+      .then((json) => {
+        if (!cancelado) setMarcas(json.marcas ?? [])
+      })
+      .catch((e: Error) => {
+        if (!cancelado) setErro(e.message)
+      })
+    return () => {
+      cancelado = true
+    }
+  }, [consultar])
+
+  useEffect(() => {
+    if (!marcaCodigo) return
+    let cancelado = false
+    consultar({ recurso: 'modelos', marca: marcaCodigo })
+      .then((json) => {
+        if (!cancelado) setModelos({ para: marcaCodigo, itens: json.modelos ?? [] })
+      })
+      .catch((e: Error) => {
+        if (!cancelado) setErro(e.message)
+      })
+    return () => {
+      cancelado = true
+    }
+  }, [marcaCodigo, consultar])
+
+  useEffect(() => {
+    if (!marcaCodigo || !modeloCodigo) return
+    let cancelado = false
+    consultar({ recurso: 'anos', marca: marcaCodigo, modelo: modeloCodigo })
+      .then((json) => {
+        if (!cancelado) setAnos({ para: modeloCodigo, itens: json.anos ?? [] })
+      })
+      .catch((e: Error) => {
+        if (!cancelado) setErro(e.message)
+      })
+    return () => {
+      cancelado = true
+    }
+  }, [marcaCodigo, modeloCodigo, consultar])
+
+  // Só mostra a lista que corresponde à seleção atual
+  const modelosVisiveis = modelos.para === marcaCodigo ? modelos.itens : []
+  const anosVisiveis = anos.para === modeloCodigo ? anos.itens : []
+  const carregandoMarcas = marcas.length === 0 && !erro
+  const carregandoModelos = !!marcaCodigo && modelosVisiveis.length === 0 && !erro
+  const carregandoAnos = !!modeloCodigo && anosVisiveis.length === 0 && !erro
+
+  async function escolherAno(anoCodigo: string) {
+    const base = {
+      ...form,
+      fipe_ano_codigo: anoCodigo,
+      valor_fipe: '',
+      codigo_fipe: '',
+      fipe_descricao: '',
+    }
+    if (!anoCodigo) {
+      onChangeForm(base)
+      return
+    }
+
+    setErro('')
+    setBuscandoValor(true)
+    try {
+      const json = await consultar({
+        recurso: 'valor',
+        marca: marcaCodigo,
+        modelo: modeloCodigo,
+        ano: anoCodigo,
+      })
+      const nomeMarca = marcas.find((m) => m.codigo === marcaCodigo)?.nome ?? ''
+      const nomeModelo = modelosVisiveis.find((m) => m.codigo === modeloCodigo)?.nome ?? ''
+      const anoNumero = String(json.anoModelo ?? '').replace(/\D/g, '')
+
+      onChangeForm({
+        ...base,
+        valor_fipe: json.valor != null ? String(json.valor) : '',
+        codigo_fipe: json.codigoFipe ?? '',
+        fipe_descricao: json.descricao || `${nomeMarca} ${nomeModelo}`.trim(),
+        // Completa os campos livres que ainda estiverem vazios, sem
+        // sobrescrever o que a pessoa já tinha digitado
+        marca: form.marca || nomeMarca,
+        modelo: form.modelo || nomeModelo,
+        ano: form.ano || (anoNumero && anoNumero !== '32000' ? anoNumero : ''),
+      })
+    } catch (e) {
+      setErro((e as Error).message)
+      onChangeForm(base)
+    } finally {
+      setBuscandoValor(false)
+    }
+  }
+
+  return (
+    <div className="rounded-lg border border-borda p-3">
+      <p className="mb-1 text-sm font-medium text-texto">Tabela FIPE</p>
+      <p className="mb-3 text-xs text-texto-suave">
+        Escolha marca, modelo e ano: o valor vem direto da FIPE, sem digitar.
+      </p>
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Campo rotulo="Marca">
+          <select
+            className={classeInput}
+            value={form.fipe_marca_codigo}
+            disabled={marcas.length === 0}
+            onChange={(e) =>
+              onChangeForm({
+                ...form,
+                fipe_marca_codigo: e.target.value,
+                fipe_modelo_codigo: '',
+                fipe_ano_codigo: '',
+                valor_fipe: '',
+                codigo_fipe: '',
+                fipe_descricao: '',
+              })
+            }
+          >
+            <option value="">{carregandoMarcas ? 'Carregando...' : 'Selecione...'}</option>
+            {marcas.map((m) => (
+              <option key={m.codigo} value={m.codigo}>
+                {m.nome}
+              </option>
+            ))}
+          </select>
+        </Campo>
+
+        <Campo rotulo="Modelo">
+          <select
+            className={classeInput}
+            value={form.fipe_modelo_codigo}
+            disabled={!marcaCodigo}
+            onChange={(e) =>
+              onChangeForm({
+                ...form,
+                fipe_modelo_codigo: e.target.value,
+                fipe_ano_codigo: '',
+                valor_fipe: '',
+                codigo_fipe: '',
+                fipe_descricao: '',
+              })
+            }
+          >
+            <option value="">{carregandoModelos ? 'Carregando...' : 'Selecione...'}</option>
+            {modelosVisiveis.map((m) => (
+              <option key={m.codigo} value={m.codigo}>
+                {m.nome}
+              </option>
+            ))}
+          </select>
+        </Campo>
+
+        <Campo rotulo="Ano">
+          <select
+            className={classeInput}
+            value={form.fipe_ano_codigo}
+            disabled={!modeloCodigo}
+            onChange={(e) => escolherAno(e.target.value)}
+          >
+            <option value="">{carregandoAnos ? 'Carregando...' : 'Selecione...'}</option>
+            {anosVisiveis.map((a) => (
+              <option key={a.codigo} value={a.codigo}>
+                {a.nome}
+              </option>
+            ))}
+          </select>
+        </Campo>
+      </div>
+
+      {buscandoValor && <p className="mt-3 text-xs text-texto-suave">Consultando a FIPE...</p>}
+
+      {form.valor_fipe && !buscandoValor && (
+        <div className="mt-3 rounded-lg bg-fundo p-3">
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="text-xs text-texto-suave">Valor FIPE</span>
+            <span className="whitespace-nowrap text-lg font-bold text-texto">
+              {moeda(parseFloat(form.valor_fipe))}
+            </span>
+          </div>
+          <p className="mt-1 text-xs text-texto-suave">
+            {form.fipe_descricao}
+            {form.codigo_fipe ? ` · código ${form.codigo_fipe}` : ''}
+          </p>
+        </div>
+      )}
+
+      {erro && <p className="mt-3 text-xs text-despesa">{erro}</p>}
+    </div>
+  )
+}
 
 function ModalVeiculo({
   aberto,
@@ -216,6 +463,19 @@ function ModalVeiculo({
             </select>
           </Campo>
         </div>
+
+        <Campo rotulo="Valor pago (R$)">
+          <input
+            type="number"
+            step="0.01"
+            className={classeInput}
+            value={form.valor_pago}
+            onChange={(e) => onChangeForm({ ...form, valor_pago: e.target.value })}
+            placeholder="Quanto você pagou na compra"
+          />
+        </Campo>
+
+        <SeletorFipe form={form} onChangeForm={onChangeForm} />
 
         <Campo rotulo="Cor no app">
           <div className="flex flex-wrap gap-2">
@@ -440,6 +700,14 @@ export default function VeiculosPage() {
       combustivel: formVeiculo.combustivel,
       cor: formVeiculo.cor,
       escopo: formVeiculo.escopo,
+      valor_pago: formVeiculo.valor_pago ? parseFloat(formVeiculo.valor_pago) : null,
+      fipe_marca_codigo: formVeiculo.fipe_marca_codigo || null,
+      fipe_modelo_codigo: formVeiculo.fipe_modelo_codigo || null,
+      fipe_ano_codigo: formVeiculo.fipe_ano_codigo || null,
+      fipe_descricao: formVeiculo.fipe_descricao || null,
+      codigo_fipe: formVeiculo.codigo_fipe || null,
+      valor_fipe: formVeiculo.valor_fipe ? parseFloat(formVeiculo.valor_fipe) : null,
+      fipe_atualizado_em: formVeiculo.valor_fipe ? new Date().toISOString() : null,
     }
 
     const { data, error } = editandoVeiculo
@@ -1075,6 +1343,13 @@ export default function VeiculosPage() {
                     combustivel: veiculoAtual.combustivel ?? 'flex',
                     cor: veiculoAtual.cor ?? CORES[0],
                     escopo: veiculoAtual.escopo,
+                    valor_pago: veiculoAtual.valor_pago != null ? String(veiculoAtual.valor_pago) : '',
+                    fipe_marca_codigo: veiculoAtual.fipe_marca_codigo ?? '',
+                    fipe_modelo_codigo: veiculoAtual.fipe_modelo_codigo ?? '',
+                    fipe_ano_codigo: veiculoAtual.fipe_ano_codigo ?? '',
+                    fipe_descricao: veiculoAtual.fipe_descricao ?? '',
+                    codigo_fipe: veiculoAtual.codigo_fipe ?? '',
+                    valor_fipe: veiculoAtual.valor_fipe != null ? String(veiculoAtual.valor_fipe) : '',
                   })
                   setMensagem('')
                   setModalVeiculo(true)
@@ -1120,6 +1395,44 @@ export default function VeiculosPage() {
               </p>
             </div>
           </div>
+
+          {/* Valor do veículo: o que foi pago x o que a FIPE diz hoje */}
+          {(veiculoAtual.valor_pago != null || veiculoAtual.valor_fipe != null) && (
+            <div className="cartao mb-4 grid grid-cols-2 gap-3 p-4 lg:grid-cols-3">
+              <div>
+                <p className="text-xs text-texto-suave">Valor pago</p>
+                <p className="whitespace-nowrap text-base font-semibold text-texto sm:text-lg">
+                  {veiculoAtual.valor_pago != null ? moeda(veiculoAtual.valor_pago) : '—'}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-texto-suave">Valor FIPE</p>
+                <p className="whitespace-nowrap text-base font-semibold text-texto sm:text-lg">
+                  {veiculoAtual.valor_fipe != null ? moeda(veiculoAtual.valor_fipe) : '—'}
+                </p>
+                {veiculoAtual.fipe_atualizado_em && (
+                  <p className="mt-0.5 text-xs text-texto-suave">
+                    Consultado em {dataBR(veiculoAtual.fipe_atualizado_em.slice(0, 10))}
+                  </p>
+                )}
+              </div>
+              {veiculoAtual.valor_pago != null && veiculoAtual.valor_fipe != null && (
+                <div className="col-span-2 lg:col-span-1">
+                  <p className="text-xs text-texto-suave">Diferença sobre o pago</p>
+                  <p
+                    className={`whitespace-nowrap text-base font-semibold sm:text-lg ${
+                      Number(veiculoAtual.valor_fipe) >= Number(veiculoAtual.valor_pago)
+                        ? 'text-receita'
+                        : 'text-despesa'
+                    }`}
+                  >
+                    {Number(veiculoAtual.valor_fipe) >= Number(veiculoAtual.valor_pago) ? '+' : '−'}{' '}
+                    {moeda(Math.abs(Number(veiculoAtual.valor_fipe) - Number(veiculoAtual.valor_pago)))}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Alertas de revisão */}
           {alertas.length > 0 && (

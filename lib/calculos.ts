@@ -164,3 +164,59 @@ export function calcularDuracaoGas<T extends TrocaGas>(trocas: T[]): (T & ComDur
 
   return resultado.reverse()
 }
+
+// ============================================================
+// Valorização de imóveis
+// ============================================================
+
+export type ImovelParaAvaliar = {
+  valor_pago: number
+  data_aquisicao: string
+  indice_base: number | null
+  valor_avaliado_manual: number | null
+}
+
+export type Avaliacao = {
+  /** Quanto o imóvel vale hoje */
+  valorAtual: number
+  /** Diferença em reais sobre o que foi pago */
+  valorizacao: number
+  /** Valorização em % sobre o valor pago */
+  percentual: number
+  /** Como o valorAtual foi obtido, para a tela poder explicar ao usuário */
+  origem: 'manual' | 'indice' | 'sem-indice'
+}
+
+/**
+ * Corrige o valor do imóvel pelo IVG-R: o quanto o índice subiu desde a compra
+ * é o quanto o imóvel subiu. Uma avaliação informada à mão sempre prevalece —
+ * quem viu o imóvel sabe mais que o índice nacional.
+ */
+export function avaliarImovel(imovel: ImovelParaAvaliar, indiceAtual: number | null): Avaliacao {
+  const pago = Number(imovel.valor_pago)
+
+  const manual = imovel.valor_avaliado_manual
+  if (manual != null && Number(manual) > 0) {
+    const valorAtual = Number(manual)
+    return {
+      valorAtual,
+      valorizacao: valorAtual - pago,
+      percentual: pago > 0 ? ((valorAtual - pago) / pago) * 100 : 0,
+      origem: 'manual',
+    }
+  }
+
+  const base = imovel.indice_base
+  if (!base || !indiceAtual || Number(base) <= 0) {
+    // Sem índice não dá para estimar: mostra o valor pago, sem inventar ganho.
+    return { valorAtual: pago, valorizacao: 0, percentual: 0, origem: 'sem-indice' }
+  }
+
+  const valorAtual = pago * (indiceAtual / Number(base))
+  return {
+    valorAtual,
+    valorizacao: valorAtual - pago,
+    percentual: pago > 0 ? ((valorAtual - pago) / pago) * 100 : 0,
+    origem: 'indice',
+  }
+}

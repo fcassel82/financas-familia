@@ -11,9 +11,11 @@ import {
   IconeCartao,
   IconeChama,
   IconeCofre,
+  IconeDivida,
   IconeEtiqueta,
   IconeFechar,
   IconeGrafico,
+  IconeImovel,
   IconeImportar,
   IconeInicio,
   IconeLista,
@@ -40,14 +42,17 @@ const NAV_PRINCIPAL: ItemNav[] = [
 
 const NAV_ANALISE: ItemNav[] = [
   { rota: '/previsao', rotulo: 'Previsão', Icone: IconeCofre },
+  { rota: '/patrimonio', rotulo: 'Investimentos', Icone: IconeGrafico },
   { rota: '/extrato', rotulo: 'Extrato', Icone: IconeLista },
   { rota: '/faturas', rotulo: 'Faturas', Icone: IconeCartao },
   { rota: '/transferencias', rotulo: 'Transferências', Icone: IconeSeta },
 ]
 
 const NAV_PATRIMONIO: ItemNav[] = [
+  { rota: '/imoveis', rotulo: 'Imóveis', Icone: IconeImovel },
   { rota: '/bens', rotulo: 'Bens e Móveis', Icone: IconeSofa },
   { rota: '/veiculos', rotulo: 'Veículos', Icone: IconeCarro },
+  { rota: '/dividas', rotulo: 'Dívidas', Icone: IconeDivida },
   { rota: '/gas', rotulo: 'Chuveiro a Gás', Icone: IconeChama },
 ]
 
@@ -55,7 +60,8 @@ const NAV_CADASTROS: ItemNav[] = [
   { rota: '/contas', rotulo: 'Contas', Icone: IconeBanco },
   { rota: '/cartoes', rotulo: 'Cartões', Icone: IconeCartao },
   { rota: '/categorias', rotulo: 'Categorias', Icone: IconeEtiqueta },
-  { rota: '/investimentos', rotulo: 'Investimentos', Icone: IconeCofre },
+  // Renomeado para não conflitar com "Investimentos" (o painel, em Análise)
+  { rota: '/investimentos', rotulo: 'Aplicações', Icone: IconeCofre },
 ]
 
 export default function AppShell({ children }: { children: React.ReactNode }) {

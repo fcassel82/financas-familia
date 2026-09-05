@@ -172,3 +172,23 @@ export function IconeChama({ className = base }: Props) {
     </svg>
   )
 }
+
+export function IconeImovel({ className = base }: Props) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3 21h18" />
+      <path d="M5 21V7l7-4 7 4v14" />
+      <path d="M9 21v-5h6v5" />
+      <path d="M9.5 9.5h1M13.5 9.5h1M9.5 12.5h1M13.5 12.5h1" />
+    </svg>
+  )
+}
+
+export function IconeDivida({ className = base }: Props) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M5 3h11l3 3v15l-3-2-3 2-3-2-3 2z" />
+      <path d="M9 8h6M9 12h6M9 16h3" />
+    </svg>
+  )
+}
