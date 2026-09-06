@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabaseClient'
 import { dataBR, diasAte, hojeISO, moeda, somarDias } from '@/lib/formato'
 import { IconeAlerta } from '@/components/Icones'
-import { CabecalhoPagina, Campo, Pagina, classeInput } from '@/components/ui'
+import { CabecalhoPagina, Campo, InputMoeda, Pagina, classeInput } from '@/components/ui'
 
 type Pendencia = { valor: number; tipo: string; data_vencimento: string; descricao: string }
 
@@ -216,14 +216,7 @@ export default function PrevisaoPage() {
 
           <div className="grid gap-4 sm:grid-cols-2">
             <Campo rotulo="Valor total (R$)">
-              <input
-                type="number"
-                step="0.01"
-                className={classeInput}
-                value={simValor}
-                onChange={(e) => setSimValor(e.target.value)}
-                placeholder="0,00"
-              />
+              <InputMoeda valor={simValor} onChange={(v) => setSimValor(v)} />
             </Campo>
             <Campo rotulo="Parcelas">
               <input

@@ -12,6 +12,7 @@ import {
   BotaoSecundario,
   CabecalhoPagina,
   Campo,
+  InputMoeda,
   Mensagem,
   Modal,
   Pagina,
@@ -326,15 +327,7 @@ function FormularioLancamento() {
           </Campo>
 
           <Campo rotulo="Valor (R$)">
-            <input
-              type="number"
-              step="0.01"
-              className={classeInput}
-              value={valor}
-              onChange={(e) => setValor(e.target.value)}
-              placeholder="0,00"
-              required
-            />
+            <InputMoeda valor={valor} onChange={(v) => setValor(v)} required />
           </Campo>
         </div>
 

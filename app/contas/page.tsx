@@ -10,6 +10,7 @@ import {
   CabecalhoPagina,
   Campo,
   EstadoVazio,
+  InputMoeda,
   Mensagem,
   Modal,
   Pagina,
@@ -322,14 +323,7 @@ export default function ContasPage() {
 
           <div className="grid gap-4 sm:grid-cols-2">
             <Campo rotulo="Saldo inicial (R$)">
-              <input
-                type="number"
-                step="0.01"
-                className={classeInput}
-                value={form.saldo_inicial}
-                onChange={(e) => setForm({ ...form, saldo_inicial: e.target.value })}
-                placeholder="0,00"
-              />
+              <InputMoeda valor={form.saldo_inicial} onChange={(v) => setForm({ ...form, saldo_inicial: v })} />
             </Campo>
 
             <Campo rotulo="Visibilidade">

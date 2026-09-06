@@ -19,6 +19,7 @@ import {
   CabecalhoPagina,
   Campo,
   EstadoVazio,
+  InputMoeda,
   Mensagem,
   Modal,
   Pagina,
@@ -512,14 +513,7 @@ export default function ContasPagarPage() {
 
           <div className="grid gap-4 sm:grid-cols-2">
             <Campo rotulo="Valor (R$)">
-              <input
-                type="number"
-                step="0.01"
-                className={classeInput}
-                value={form.valor}
-                onChange={(e) => setForm({ ...form, valor: e.target.value })}
-                required
-              />
+              <InputMoeda valor={form.valor} onChange={(v) => setForm({ ...form, valor: v })} required />
             </Campo>
             <Campo rotulo="Vencimento">
               <input
@@ -676,14 +670,7 @@ export default function ContasPagarPage() {
                 />
               </Campo>
               <Campo rotulo="Valor (R$)">
-                <input
-                  type="number"
-                  step="0.01"
-                  className={classeInput}
-                  value={formBaixa.valor}
-                  onChange={(e) => setFormBaixa({ ...formBaixa, valor: e.target.value })}
-                  required
-                />
+                <InputMoeda valor={formBaixa.valor} onChange={(v) => setFormBaixa({ ...formBaixa, valor: v })} required />
               </Campo>
             </div>
 

@@ -11,6 +11,7 @@ import {
   CabecalhoPagina,
   Campo,
   EstadoVazio,
+  InputMoeda,
   Mensagem,
   Modal,
   Pagina,
@@ -618,26 +619,12 @@ export default function ImoveisPage() {
                 />
               </Campo>
               <Campo rotulo="Valor pago (R$)">
-                <input
-                  type="number"
-                  step="0.01"
-                  className={classeInput}
-                  value={form.valor_pago}
-                  onChange={(e) => setForm({ ...form, valor_pago: e.target.value })}
-                  required
-                />
+                <InputMoeda valor={form.valor_pago} onChange={(v) => setForm({ ...form, valor_pago: v })} required />
               </Campo>
             </div>
 
             <Campo rotulo="Avaliação atual (R$) — opcional" className="mt-3">
-              <input
-                type="number"
-                step="0.01"
-                className={classeInput}
-                value={form.valor_avaliado_manual}
-                onChange={(e) => setForm({ ...form, valor_avaliado_manual: e.target.value })}
-                placeholder="Deixe vazio para o sistema corrigir sozinho"
-              />
+              <InputMoeda valor={form.valor_avaliado_manual} onChange={(v) => setForm({ ...form, valor_avaliado_manual: v })} placeholder="Deixe vazio para o sistema corrigir sozinho" />
             </Campo>
             <p className="mt-1.5 text-xs text-texto-suave">
               Vazio: o valor é corrigido automaticamente pelo IVG-R do Banco Central, na proporção

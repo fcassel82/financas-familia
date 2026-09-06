@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { textoParaCentavos, valorParaTextoMoeda } from '@/lib/formato'
 import { IconeFechar } from './Icones'
 
 export function CabecalhoPagina({
@@ -238,6 +239,60 @@ export function EstadoVazio({
       <p className="font-medium text-texto">{titulo}</p>
       {descricao && <p className="mx-auto mt-1 max-w-sm text-sm text-texto-suave">{descricao}</p>}
       {acao && <div className="mt-4 flex justify-center">{acao}</div>}
+    </div>
+  )
+}
+
+/**
+ * Campo de dinheiro no padrão contábil: a pessoa digita só números e a
+ * vírgula e os pontos de milhar aparecem sozinhos ("123456" vira 1.234,56).
+ *
+ * Por fora ele continua entregando um número em string ("1234.56"), igual ao
+ * que um <input type="number"> entregaria, para não quebrar quem já fazia
+ * parseFloat no valor.
+ */
+export function InputMoeda({
+  valor,
+  onChange,
+  className = '',
+  placeholder = '0,00',
+  required = false,
+  disabled = false,
+  'aria-label': ariaLabel,
+}: {
+  valor: string
+  onChange: (valor: string) => void
+  className?: string
+  placeholder?: string
+  required?: boolean
+  disabled?: boolean
+  'aria-label'?: string
+}) {
+  return (
+    <div className="relative">
+      <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-texto-suave">
+        R$
+      </span>
+      <input
+        type="text"
+        // Abre o teclado numérico no celular sem perder a máscara
+        inputMode="numeric"
+        className={`${classeInput} pl-9 text-right tabular-nums ${className}`}
+        value={valorParaTextoMoeda(valor)}
+        placeholder={placeholder}
+        required={required}
+        disabled={disabled}
+        aria-label={ariaLabel}
+        onChange={(e) => {
+          const centavos = textoParaCentavos(e.target.value)
+          // Campo vazio precisa continuar vazio, e não virar 0,00
+          if (!e.target.value.replace(/\D/g, '')) {
+            onChange('')
+            return
+          }
+          onChange(String(centavos / 100))
+        }}
+      />
     </div>
   )
 }

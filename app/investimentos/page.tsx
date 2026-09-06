@@ -10,6 +10,7 @@ import {
   CabecalhoPagina,
   Campo,
   EstadoVazio,
+  InputMoeda,
   Mensagem,
   Modal,
   Pagina,
@@ -275,14 +276,7 @@ export default function InvestimentosPage() {
 
           <div className="grid gap-4 sm:grid-cols-2">
             <Campo rotulo="Valor investido (R$)">
-              <input
-                type="number"
-                step="0.01"
-                className={classeInput}
-                value={form.valor_investido}
-                onChange={(e) => setForm({ ...form, valor_investido: e.target.value })}
-                required
-              />
+              <InputMoeda valor={form.valor_investido} onChange={(v) => setForm({ ...form, valor_investido: v })} required />
             </Campo>
             <Campo rotulo="Data do aporte">
               <input

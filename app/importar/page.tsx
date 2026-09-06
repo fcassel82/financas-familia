@@ -16,6 +16,7 @@ import {
   BotaoSecundario,
   CabecalhoPagina,
   Campo,
+  InputMoeda,
   Mensagem,
   Modal,
   Pagina,
@@ -844,13 +845,7 @@ export default function ImportarPage() {
                     />
                   </Campo>
                   <Campo rotulo="Valor (R$)">
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={l.valor}
-                      onChange={(e) => atualizarLinha(i, 'valor', parseFloat(e.target.value) || 0)}
-                      className={classeInput}
-                    />
+                    <InputMoeda valor={String(l.valor)} onChange={(v) => atualizarLinha(i, 'valor', parseFloat(v) || 0)} />
                   </Campo>
                 </div>
 
@@ -941,14 +936,10 @@ export default function ImportarPage() {
                         />
                       </td>
                       <td className="p-2">
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={l.valor}
-                          onChange={(e) =>
-                            atualizarLinha(i, 'valor', parseFloat(e.target.value) || 0)
-                          }
-                          className="w-24 rounded-lg border border-borda bg-superficie px-2 py-1.5 text-texto"
+                        <InputMoeda
+                          valor={String(l.valor)}
+                          onChange={(v) => atualizarLinha(i, 'valor', parseFloat(v) || 0)}
+                          className="w-28"
                         />
                       </td>
                       <td className="p-2">

@@ -11,6 +11,7 @@ import {
   CabecalhoPagina,
   Campo,
   EstadoVazio,
+  InputMoeda,
   Mensagem,
   Modal,
   Pagina,
@@ -323,14 +324,7 @@ export default function GasPage() {
               />
             </Campo>
             <Campo rotulo="Valor pago (R$)">
-              <input
-                type="number"
-                step="0.01"
-                className={classeInput}
-                value={form.valor}
-                onChange={(e) => setForm({ ...form, valor: e.target.value })}
-                required
-              />
+              <InputMoeda valor={form.valor} onChange={(v) => setForm({ ...form, valor: v })} required />
             </Campo>
           </div>
 

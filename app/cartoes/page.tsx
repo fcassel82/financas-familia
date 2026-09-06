@@ -10,6 +10,7 @@ import {
   CabecalhoPagina,
   Campo,
   EstadoVazio,
+  InputMoeda,
   Mensagem,
   Modal,
   Pagina,
@@ -324,14 +325,7 @@ export default function CartoesPage() {
 
           <div className="grid gap-4 sm:grid-cols-3">
             <Campo rotulo="Limite (R$)">
-              <input
-                type="number"
-                step="0.01"
-                className={classeInput}
-                value={form.limite}
-                onChange={(e) => setForm({ ...form, limite: e.target.value })}
-                placeholder="0,00"
-              />
+              <InputMoeda valor={form.limite} onChange={(v) => setForm({ ...form, limite: v })} />
             </Campo>
             <Campo rotulo="Dia do fechamento">
               <input

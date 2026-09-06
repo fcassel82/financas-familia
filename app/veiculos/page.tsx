@@ -11,6 +11,7 @@ import {
   CabecalhoPagina,
   Campo,
   EstadoVazio,
+  InputMoeda,
   Mensagem,
   Modal,
   Pagina,
@@ -465,14 +466,7 @@ function ModalVeiculo({
         </div>
 
         <Campo rotulo="Valor pago (R$)">
-          <input
-            type="number"
-            step="0.01"
-            className={classeInput}
-            value={form.valor_pago}
-            onChange={(e) => onChangeForm({ ...form, valor_pago: e.target.value })}
-            placeholder="Quanto você pagou na compra"
-          />
+          <InputMoeda valor={form.valor_pago} onChange={(v) => onChangeForm({ ...form, valor_pago: v })} placeholder="Quanto você pagou na compra" />
         </Campo>
 
         <SeletorFipe form={form} onChangeForm={onChangeForm} />
@@ -1679,16 +1673,7 @@ export default function VeiculosPage() {
               />
             </Campo>
             <Campo rotulo="Valor total (R$)">
-              <input
-                type="number"
-                step="0.01"
-                className={classeInput}
-                value={formAbastecimento.valor_total}
-                onChange={(e) =>
-                  setFormAbastecimento({ ...formAbastecimento, valor_total: e.target.value })
-                }
-                required
-              />
+              <InputMoeda valor={formAbastecimento.valor_total} onChange={(v) => setFormAbastecimento({ ...formAbastecimento, valor_total: v })} required />
             </Campo>
           </div>
 
@@ -1924,14 +1909,7 @@ export default function VeiculosPage() {
               />
             </Campo>
             <Campo rotulo="Custo (R$)">
-              <input
-                type="number"
-                step="0.01"
-                className={classeInput}
-                value={formManutencao.custo}
-                onChange={(e) => setFormManutencao({ ...formManutencao, custo: e.target.value })}
-                required
-              />
+              <InputMoeda valor={formManutencao.custo} onChange={(v) => setFormManutencao({ ...formManutencao, custo: v })} required />
             </Campo>
           </div>
 

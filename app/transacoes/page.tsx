@@ -20,6 +20,7 @@ import {
   CabecalhoPagina,
   Campo,
   EstadoVazio,
+  InputMoeda,
   Mensagem,
   Pagina,
   classeInput,
@@ -554,16 +555,7 @@ export default function TransacoesPage() {
                               />
                             </Campo>
                             <Campo rotulo="Valor (R$)">
-                              <input
-                                type="number"
-                                step="0.01"
-                                className={classeInput}
-                                value={formEdicao.valor}
-                                onChange={(e) =>
-                                  setFormEdicao({ ...formEdicao, valor: e.target.value })
-                                }
-                                required
-                              />
+                              <InputMoeda valor={formEdicao.valor} onChange={(v) => setFormEdicao({ ...formEdicao, valor: v })} required />
                             </Campo>
                           </div>
 

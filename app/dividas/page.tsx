@@ -10,6 +10,7 @@ import {
   CabecalhoPagina,
   Campo,
   EstadoVazio,
+  InputMoeda,
   Mensagem,
   Modal,
   Pagina,
@@ -454,35 +455,16 @@ export default function DividasPage() {
 
           <div className="grid gap-4 sm:grid-cols-2">
             <Campo rotulo="Valor total financiado (R$)">
-              <input
-                type="number"
-                step="0.01"
-                className={classeInput}
-                value={form.valor_total}
-                onChange={(e) => setForm({ ...form, valor_total: e.target.value })}
-              />
+              <InputMoeda valor={form.valor_total} onChange={(v) => setForm({ ...form, valor_total: v })} />
             </Campo>
             <Campo rotulo="Saldo devedor hoje (R$)">
-              <input
-                type="number"
-                step="0.01"
-                className={classeInput}
-                value={form.saldo_devedor}
-                onChange={(e) => setForm({ ...form, saldo_devedor: e.target.value })}
-                required
-              />
+              <InputMoeda valor={form.saldo_devedor} onChange={(v) => setForm({ ...form, saldo_devedor: v })} required />
             </Campo>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-3">
             <Campo rotulo="Valor da parcela (R$)">
-              <input
-                type="number"
-                step="0.01"
-                className={classeInput}
-                value={form.valor_parcela}
-                onChange={(e) => setForm({ ...form, valor_parcela: e.target.value })}
-              />
+              <InputMoeda valor={form.valor_parcela} onChange={(v) => setForm({ ...form, valor_parcela: v })} />
             </Campo>
             <Campo rotulo="Parcelas pagas">
               <input

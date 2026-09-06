@@ -121,3 +121,35 @@ export function deslocarMes(chave: string, meses: number): string {
   const [ano, mes] = chave.split('-').map(Number)
   return chaveMes(new Date(ano, mes - 1 + meses, 1))
 }
+
+/**
+ * Formata centavos no padrão contábil brasileiro: 123456 → "1.234,56".
+ * Sem o "R$" — o prefixo fica fixo ao lado do campo, para o cursor não
+ * precisar pular por cima dele enquanto a pessoa digita.
+ */
+export function centavosParaTexto(centavos: number): string {
+  return (centavos / 100).toLocaleString('pt-BR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })
+}
+
+/**
+ * Só os dígitos do que foi digitado, lidos como centavos. É isso que permite
+ * digitar "123456" e ver "1.234,56" aparecer sozinho: cada tecla empurra o
+ * valor uma casa para a esquerda.
+ */
+export function textoParaCentavos(texto: string): number {
+  const digitos = texto.replace(/\D/g, '')
+  if (!digitos) return 0
+  // Number aguenta com folga qualquer valor de dinheiro real
+  return Number(digitos)
+}
+
+/** Valor numérico em string ("1234.56") → texto formatado ("1.234,56") */
+export function valorParaTextoMoeda(valor: string | number | null | undefined): string {
+  if (valor === '' || valor === null || valor === undefined) return ''
+  const numero = typeof valor === 'number' ? valor : parseFloat(valor)
+  if (!Number.isFinite(numero)) return ''
+  return centavosParaTexto(Math.round(numero * 100))
+}

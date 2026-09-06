@@ -31,6 +31,7 @@ import {
   CabecalhoPagina,
   Campo,
   EstadoVazio,
+  InputMoeda,
   Mensagem,
   Modal,
   Pagina,
@@ -167,6 +168,8 @@ function BadgeStatus({ fatura }: { fatura: Fatura }) {
 }
 
 const FORM_LANCAMENTO_VAZIO = {
+  data: '',
+  valor: '',
   descricao: '',
   categoria_id: '',
   subcategoria_id: '',
@@ -472,7 +475,14 @@ export default function FaturasPage() {
 
   function abrirSalvarLinha(item: ItemConciliacao) {
     setLinhaAberta(item.chave)
-    setFormLancamento({ ...FORM_LANCAMENTO_VAZIO, descricao: item.descricao })
+    setFormLancamento({
+      ...FORM_LANCAMENTO_VAZIO,
+      descricao: item.descricao,
+      // Vêm do arquivo, mas ficam editáveis: em compra antiga a data do
+      // extrato não é a da compra, e o valor pode ser só o de uma parcela
+      data: item.data,
+      valor: String(item.valor),
+    })
   }
 
   async function salvarLinhaComoCompra(item: ItemConciliacao) {
@@ -481,11 +491,11 @@ export default function FaturasPage() {
     setMensagem('')
 
     const base = {
-      data: item.data,
+      data: formLancamento.data || item.data,
       descricao: formLancamento.descricao,
       categoria_id: formLancamento.categoria_id || null,
       subcategoria_id: formLancamento.subcategoria_id || null,
-      valor: item.valor,
+      valor: parseFloat(formLancamento.valor || String(item.valor)),
       tipo: item.tipo,
       escopo: formLancamento.escopo,
       cartao_id: cartaoOfx,
@@ -630,14 +640,38 @@ export default function FaturasPage() {
                   if (aberta) {
                     return (
                       <li key={item.chave} className="px-4 py-4">
-                        <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-                          <p className="text-sm text-texto-suave">
-                            {dataBR(item.data)} ·{' '}
-                            <span className={receita ? 'text-receita' : 'text-despesa'}>
-                              {receita ? '+' : '−'} {moeda(item.valor)}
-                            </span>
-                          </p>
+                        <p className="mb-3 text-xs text-texto-suave">
+                          No arquivo: {dataBR(item.data)} ·{' '}
+                          <span className={receita ? 'text-receita' : 'text-despesa'}>
+                            {receita ? '+' : '−'} {moeda(item.valor)}
+                          </span>
+                        </p>
+
+                        <div className="mb-3 grid gap-3 sm:grid-cols-2">
+                          <Campo rotulo="Data da compra">
+                            <input
+                              type="date"
+                              className={classeInput}
+                              value={formLancamento.data}
+                              onChange={(e) =>
+                                setFormLancamento({ ...formLancamento, data: e.target.value })
+                              }
+                              required
+                            />
+                          </Campo>
+                          <Campo rotulo="Valor (R$)">
+                            <InputMoeda
+                              valor={formLancamento.valor}
+                              onChange={(v) => setFormLancamento({ ...formLancamento, valor: v })}
+                              required
+                            />
+                          </Campo>
                         </div>
+                        <p className="mb-3 text-xs text-texto-suave">
+                          Compra antiga costuma vir com a data em que entrou na fatura e já
+                          dividida. Ajuste para a data e o valor cheio da compra, e use o
+                          parcelamento abaixo para o sistema dividir.
+                        </p>
                         <div className="space-y-3">
                           <Campo rotulo="Descrição">
                             <input
@@ -728,15 +762,21 @@ export default function FaturasPage() {
                                       }
                                     />
                                   </Campo>
-                                  {parseInt(formLancamento.parcelas || '0', 10) >= 2 && (
-                                    <p className="mt-1.5 text-xs text-texto-suave">
-                                      {formLancamento.parcelas}x de aproximadamente{' '}
-                                      {moeda(item.valor / parseInt(formLancamento.parcelas, 10))}, uma por
-                                      mês a partir de {dataBR(item.data)}. O valor total de {moeda(item.valor)}{' '}
-                                      é mantido — os centavos da divisão vão para a última parcela, e as
-                                      parcelas futuras já entram provisionadas nas próximas faturas.
-                                    </p>
-                                  )}
+                                  {parseInt(formLancamento.parcelas || '0', 10) >= 2 &&
+                                    parseFloat(formLancamento.valor || '0') > 0 && (
+                                      <p className="mt-1.5 text-xs text-texto-suave">
+                                        {formLancamento.parcelas}x de aproximadamente{' '}
+                                        {moeda(
+                                          parseFloat(formLancamento.valor) /
+                                            parseInt(formLancamento.parcelas, 10)
+                                        )}
+                                        , uma por mês a partir de{' '}
+                                        {dataBR(formLancamento.data || item.data)}. O valor total de{' '}
+                                        {moeda(parseFloat(formLancamento.valor))} é mantido — os centavos
+                                        da divisão vão para a última parcela, e as parcelas futuras já
+                                        entram provisionadas nas próximas faturas.
+                                      </p>
+                                    )}
                                 </div>
                               )}
                             </div>
@@ -869,14 +909,7 @@ export default function FaturasPage() {
             </Campo>
 
             <Campo rotulo="Valor pago (R$)">
-              <input
-                type="number"
-                step="0.01"
-                className={classeInput}
-                value={formPagar.valor}
-                onChange={(e) => setFormPagar({ ...formPagar, valor: e.target.value })}
-                required
-              />
+              <InputMoeda valor={formPagar.valor} onChange={(v) => setFormPagar({ ...formPagar, valor: v })} required />
             </Campo>
 
             <Campo rotulo="Pago com a conta">

@@ -11,6 +11,7 @@ import {
   CabecalhoPagina,
   Campo,
   EstadoVazio,
+  InputMoeda,
   Mensagem,
   Modal,
   Pagina,
@@ -359,14 +360,7 @@ export default function BensPage() {
 
           <div className="grid gap-4 sm:grid-cols-2">
             <Campo rotulo="Valor de compra (R$)">
-              <input
-                type="number"
-                step="0.01"
-                className={classeInput}
-                value={form.valor_aquisicao}
-                onChange={(e) => setForm({ ...form, valor_aquisicao: e.target.value })}
-                required
-              />
+              <InputMoeda valor={form.valor_aquisicao} onChange={(v) => setForm({ ...form, valor_aquisicao: v })} required />
             </Campo>
             <Campo rotulo="Data da compra">
               <input
@@ -392,14 +386,7 @@ export default function BensPage() {
               />
             </Campo>
             <Campo rotulo="Valor residual (R$)">
-              <input
-                type="number"
-                step="0.01"
-                className={classeInput}
-                value={form.valor_residual}
-                onChange={(e) => setForm({ ...form, valor_residual: e.target.value })}
-                placeholder="0,00"
-              />
+              <InputMoeda valor={form.valor_residual} onChange={(v) => setForm({ ...form, valor_residual: v })} />
             </Campo>
           </div>
           <p className="-mt-2 text-xs text-texto-suave">
