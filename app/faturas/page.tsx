@@ -463,10 +463,17 @@ export default function FaturasPage() {
     colData: string,
     colDescricao: string,
     colValor: string,
-    modo: ModoValorCsv
+    modo: ModoValorCsv,
+    colParcela: string
   ) {
     if (!csvBruto || !cartaoOfx) return
-    const itensCsv = linhasCsvParaLancamentos(csvBruto.linhas, { colData, colDescricao, colValor, modo })
+    const itensCsv = linhasCsvParaLancamentos(csvBruto.linhas, {
+      colData,
+      colDescricao,
+      colValor,
+      modo,
+      colParcela: colParcela || undefined,
+    })
     setCsvBruto(null)
     setImportando(true)
     await conciliarImportados(cartaoOfx, itensCsv)
@@ -487,8 +494,33 @@ export default function FaturasPage() {
 
   async function salvarLinhaComoCompra(item: ItemConciliacao) {
     if (!cartaoOfx) return
-    setSalvandoLinha(true)
     setMensagem('')
+
+    // Item já veio com o número da parcela lido do arquivo (coluna de
+    // parcela mapeada na importação): é a continuação de uma compra que já
+    // deve ter parcelas anteriores lançadas — não é uma compra nova para
+    // dividir em N parcelas. Confere se essa parcela específica já não foi
+    // lançada antes, pra não duplicar ao reimportar a mesma fatura.
+    if (item.parcelaNumero && item.parcelaNumero > 1 && item.parcelaTotal) {
+      const descricaoBase = formLancamento.descricao.trim()
+      const { data: existentes } = await supabase
+        .from('transacoes')
+        .select('id')
+        .eq('cartao_id', cartaoOfx)
+        .eq('parcela_numero', item.parcelaNumero)
+        .eq('parcela_total', item.parcelaTotal)
+        .ilike('descricao', `${descricaoBase}%`)
+        .limit(1)
+
+      if (existentes && existentes.length > 0) {
+        setMensagem(
+          `A parcela ${item.parcelaNumero}/${item.parcelaTotal} de "${descricaoBase}" já parece lançada — não foi salva de novo.`
+        )
+        return
+      }
+    }
+
+    setSalvandoLinha(true)
 
     const base = {
       data: formLancamento.data || item.data,
@@ -506,9 +538,10 @@ export default function FaturasPage() {
 
     const quantidadeParcelas = Math.max(2, parseInt(formLancamento.parcelas || '2', 10))
     const recorrenciaId = crypto.randomUUID()
-    const registros =
-      formLancamento.parcelar && quantidadeParcelas >= 2
-        ? dividirEmParcelas(base, quantidadeParcelas).map((r) => ({ ...r, recorrencia_id: recorrenciaId }))
+    const registros = formLancamento.parcelar
+      ? dividirEmParcelas(base, quantidadeParcelas).map((r) => ({ ...r, recorrencia_id: recorrenciaId }))
+      : item.parcelaNumero && item.parcelaTotal
+        ? [{ ...base, parcela_numero: item.parcelaNumero, parcela_total: item.parcelaTotal }]
         : [base]
 
     const { error, data } = await supabase.from('transacoes').insert(registros).select('id')
@@ -645,6 +678,15 @@ export default function FaturasPage() {
                           <span className={receita ? 'text-receita' : 'text-despesa'}>
                             {receita ? '+' : '−'} {moeda(item.valor)}
                           </span>
+                          {item.parcelaNumero && item.parcelaTotal ? (
+                            <>
+                              {' '}
+                              · parcela {item.parcelaNumero}/{item.parcelaTotal}
+                              {item.parcelaNumero > 1
+                                ? ' (data já corrigida a partir da data de compra original)'
+                                : ''}
+                            </>
+                          ) : null}
                         </p>
 
                         <div className="mb-3 grid gap-3 sm:grid-cols-2">
@@ -735,7 +777,15 @@ export default function FaturasPage() {
                             </select>
                           </Campo>
 
-                          {item.tipo === 'despesa' && (
+                          {item.tipo === 'despesa' && item.parcelaNumero && item.parcelaNumero > 1 && (
+                            <p className="rounded-lg border border-borda p-3 text-xs text-texto-suave">
+                              O arquivo já indica que esta é a parcela {item.parcelaNumero}/
+                              {item.parcelaTotal} de uma compra parcelada — será salva como um único
+                              lançamento com esse número de parcela, sem dividir de novo.
+                            </p>
+                          )}
+
+                          {item.tipo === 'despesa' && (!item.parcelaNumero || item.parcelaNumero === 1) && (
                             <div className="rounded-lg border border-borda p-3">
                               <label className="flex items-center gap-2 text-sm text-texto">
                                 <input
@@ -945,6 +995,7 @@ export default function FaturasPage() {
         <ImportarCsvModal
           colunas={csvBruto.colunas}
           totalLinhas={csvBruto.linhas.length}
+          permiteParcela
           onFechar={() => setCsvBruto(null)}
           onConfirmar={confirmarMapeamentoCsv}
         />

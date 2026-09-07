@@ -307,6 +307,7 @@ export default function ExtratoPage() {
     modo: ModoValorCsv
   ) {
     if (!csvBruto) return
+    // Extrato de conta não tem coluna de parcela — isso só existe em fatura de cartão
     const itensCsv = linhasCsvParaLancamentos(csvBruto.linhas, { colData, colDescricao, colValor, modo })
     setCsvBruto(null)
     setImportando(true)

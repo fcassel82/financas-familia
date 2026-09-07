@@ -4,12 +4,13 @@ import { useEffect, useState } from 'react'
 import Papa from 'papaparse'
 import readXlsxFile from 'read-excel-file/browser'
 import { supabase } from '@/lib/supabaseClient'
-import { dataBR, hojeISO, moeda, somarMeses } from '@/lib/formato'
+import { dataBR, hojeISO, moeda } from '@/lib/formato'
 import { parseData, parseValor } from '@/lib/parseExtrato'
 import { decodificarOfx, parsearOfx, type LancamentoOfx } from '@/lib/parseOfx'
 import { sugerirCategoria } from '@/lib/categorizarProduto'
 import type { NotaFiscal } from '@/lib/parseNfce'
 import { verificarDuplicatasEmLote, type Duplicata } from '@/lib/verificarDuplicata'
+import { dividirEmParcelas } from '@/lib/parcelas'
 import { IconeImportar } from '@/components/Icones'
 import {
   BotaoPrimario,
@@ -46,27 +47,8 @@ type LinhaImportada = {
   subcategoriaId: string
   escopo: string
   incluir: boolean
-}
-
-/**
- * Divide o valor de um item em N parcelas mensais, com os centavos que
- * sobram da divisão indo para a última — mesma lógica de lib/lancamentos,
- * para que a soma das parcelas bata exatamente com o valor do item.
- */
-function dividirEmParcelas(base: LinhaImportada, quantidade: number): LinhaImportada[] {
-  const totalCentavos = Math.round(base.valor * 100)
-  const porParcela = Math.floor(totalCentavos / quantidade)
-  const sobra = totalCentavos - porParcela * quantidade
-
-  return Array.from({ length: quantidade }, (_, i) => {
-    const centavos = i === quantidade - 1 ? porParcela + sobra : porParcela
-    return {
-      ...base,
-      data: somarMeses(base.data, i),
-      descricao: `${base.descricao} (${i + 1}/${quantidade})`,
-      valor: centavos / 100,
-    }
-  })
+  parcelaNumero?: number
+  parcelaTotal?: number
 }
 
 function celulaParaTexto(valor: unknown): string {
@@ -371,7 +353,13 @@ export default function ImportarPage() {
     // vale pra qualquer formato, não só nota fiscal
     if (meioPagamento === 'credito_parcelado') {
       const quantidadeParcelas = Math.max(2, parseInt(parcelas || '2', 10))
-      processadas = processadas.flatMap((linha) => dividirEmParcelas(linha, quantidadeParcelas))
+      processadas = processadas.flatMap((linha) =>
+        dividirEmParcelas(linha, quantidadeParcelas).map((p) => ({
+          ...p,
+          parcelaNumero: p.parcela_numero,
+          parcelaTotal: p.parcela_total,
+        }))
+      )
     }
 
     setLinhas(processadas)
@@ -462,6 +450,8 @@ export default function ImportarPage() {
         banco_cartao: bancoCartaoParaSalvar,
         conta_id: contaParaSalvar,
         cartao_id: cartaoParaSalvar,
+        parcela_numero: l.parcelaNumero ?? null,
+        parcela_total: l.parcelaTotal ?? null,
         dono_id: userId,
         lancado_por: userId,
       }))

@@ -6,6 +6,9 @@ export type LancamentoOfx = {
   tipo: 'receita' | 'despesa'
   /** Identificador do banco, usado para não importar a mesma transação duas vezes */
   idBanco: string
+  /** Só vem de CSV de fatura com coluna de parcela mapeada (ver parseCsvExtrato) */
+  parcelaNumero?: number
+  parcelaTotal?: number
 }
 
 /**
@@ -88,6 +91,8 @@ export type ItemConciliacao = {
   valor: number
   tipo: 'receita' | 'despesa'
   transacaoId: string | null
+  parcelaNumero?: number
+  parcelaTotal?: number
 }
 
 export type ExistenteParaConciliar = { id: string; data: string; valor: number; tipo: string }
@@ -118,6 +123,8 @@ export function conciliarComExistentes(
       valor: item.valor,
       tipo: item.tipo,
       transacaoId: encontrado?.id ?? null,
+      parcelaNumero: item.parcelaNumero,
+      parcelaTotal: item.parcelaTotal,
     }
   })
 }
