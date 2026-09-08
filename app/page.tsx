@@ -36,7 +36,7 @@ type Movimento = {
   contas: { nome: string; cor: string | null } | null
 }
 
-type Conta = { id: string; nome: string; cor: string | null; saldo_inicial: number }
+type Conta = { id: string; nome: string; cor: string | null; saldo_inicial: number; tipo: string }
 
 export default function InicioPage() {
   const router = useRouter()
@@ -74,7 +74,7 @@ export default function InicioPage() {
         { data: movimentosMes },
         { data: pendencias },
       ] = await Promise.all([
-          supabase.from('contas').select('id, nome, cor, saldo_inicial').order('nome'),
+          supabase.from('contas').select('id, nome, cor, saldo_inicial, tipo').order('nome'),
           supabase.from('transacoes').select('conta_id, valor, tipo').eq('status', 'pago'),
           supabase
             .from('transacoes')
@@ -111,7 +111,11 @@ export default function InicioPage() {
     carregar()
   }, [router, mesAtual])
 
-  const saldoEmContas = contas.reduce((soma, c) => soma + (saldos[c.id] ?? 0), 0)
+  // "Saldo em contas" é só liquidez disponível — conta corrente e poupança.
+  // Investimento entra no patrimônio, não aqui, pra não misturar caixa com aplicação.
+  const saldoEmContas = contas
+    .filter((c) => c.tipo === 'corrente' || c.tipo === 'poupanca')
+    .reduce((soma, c) => soma + (saldos[c.id] ?? 0), 0)
   const receitasMes = doMes
     .filter((m) => m.tipo === 'receita')
     .reduce((s, m) => s + Number(m.valor), 0)
