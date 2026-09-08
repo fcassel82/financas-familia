@@ -63,6 +63,11 @@ const CORES_CATEGORICAS = [
   '#dc4c4c',
 ]
 const COR_OUTRAS = '#94a3b8'
+
+// Valores artificiais pro filtro — não são um id real de categorias/subcategorias,
+// representam "esse lançamento não tem categoria/subcategoria definida"
+const SEM_CATEGORIA_ID = '__sem_categoria__'
+const SEM_SUBCATEGORIA_ID = '__sem_subcategoria__'
 const COR_RECEITA = '#0e9f6e'
 const COR_DESPESA = '#dc4c4c'
 
@@ -272,6 +277,9 @@ export default function DashboardPage() {
     if (ids.length === 0) return
     setSubcategoriasFiltro((atual) =>
       atual.filter((subId) => {
+        // "Sem subcategoria" não pertence a nenhuma categoria específica —
+        // continua fazendo sentido pra qualquer categoria selecionada
+        if (subId === SEM_SUBCATEGORIA_ID) return true
         const sub = subcategorias.find((s) => s.id === subId)
         return sub && ids.includes(sub.categoria_id)
       })
@@ -284,6 +292,15 @@ export default function DashboardPage() {
         ? subcategorias
         : subcategorias.filter((s) => categoriasFiltro.includes(s.categoria_id)),
     [subcategorias, categoriasFiltro]
+  )
+
+  const opcoesCategoriaFiltro = useMemo(
+    () => [{ id: SEM_CATEGORIA_ID, nome: 'Sem categoria' }, ...categorias],
+    [categorias]
+  )
+  const opcoesSubcategoriaFiltro = useMemo(
+    () => [{ id: SEM_SUBCATEGORIA_ID, nome: 'Sem subcategoria' }, ...subcategoriasDisponiveis],
+    [subcategoriasDisponiveis]
   )
 
   const mesesChaves = useMemo(
@@ -310,8 +327,28 @@ export default function DashboardPage() {
 
     if (escopoFiltro !== 'todos') query = query.eq('escopo', escopoFiltro)
     if (isAdmin && membroFiltro) query = query.eq('dono_id', membroFiltro)
-    if (categoriasFiltro.length > 0) query = query.in('categoria_id', categoriasFiltro)
-    if (subcategoriasFiltro.length > 0) query = query.in('subcategoria_id', subcategoriasFiltro)
+    if (categoriasFiltro.length > 0) {
+      const idsReais = categoriasFiltro.filter((id) => id !== SEM_CATEGORIA_ID)
+      const semCategoria = categoriasFiltro.includes(SEM_CATEGORIA_ID)
+      if (semCategoria && idsReais.length > 0) {
+        query = query.or(`categoria_id.is.null,categoria_id.in.(${idsReais.join(',')})`)
+      } else if (semCategoria) {
+        query = query.is('categoria_id', null)
+      } else {
+        query = query.in('categoria_id', idsReais)
+      }
+    }
+    if (subcategoriasFiltro.length > 0) {
+      const idsReais = subcategoriasFiltro.filter((id) => id !== SEM_SUBCATEGORIA_ID)
+      const semSubcategoria = subcategoriasFiltro.includes(SEM_SUBCATEGORIA_ID)
+      if (semSubcategoria && idsReais.length > 0) {
+        query = query.or(`subcategoria_id.is.null,subcategoria_id.in.(${idsReais.join(',')})`)
+      } else if (semSubcategoria) {
+        query = query.is('subcategoria_id', null)
+      } else {
+        query = query.in('subcategoria_id', idsReais)
+      }
+    }
 
     const { data, error } = await query
 
@@ -543,13 +580,13 @@ export default function DashboardPage() {
         <div className="grid gap-3 sm:grid-cols-2">
           <SeletorMultiplo
             rotulo="Categoria"
-            opcoes={categorias}
+            opcoes={opcoesCategoriaFiltro}
             selecionados={categoriasFiltro}
             onChange={atualizarCategoriasFiltro}
           />
           <SeletorMultiplo
             rotulo="Subcategoria"
-            opcoes={subcategoriasDisponiveis}
+            opcoes={opcoesSubcategoriaFiltro}
             selecionados={subcategoriasFiltro}
             onChange={setSubcategoriasFiltro}
           />
