@@ -81,6 +81,9 @@ export default function InicioPage() {
             .select('id, data, descricao, valor, tipo, categorias(nome), contas(nome, cor)')
             .eq('status', 'pago')
             .is('transferencia_id', null)
+            // O pagamento agregado de uma fatura de cartão é a mesma despesa das
+            // compras já lançadas individualmente — contar as duas dobra o gasto
+            .is('fatura_cartao_id', null)
             .gte('data', inicio)
             .lte('data', fim)
             .order('data', { ascending: false }),

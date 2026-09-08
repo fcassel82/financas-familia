@@ -155,6 +155,9 @@ export default function TransacoesPage() {
       .eq('status', 'pago')
       // Transferências entre contas próprias têm tela própria e não são receita/despesa
       .is('transferencia_id', null)
+      // O pagamento agregado de uma fatura de cartão é a mesma despesa das
+      // compras já lançadas individualmente — contar as duas dobra o gasto
+      .is('fatura_cartao_id', null)
       .gte('data', inicio)
       .lte('data', fim)
       .order('data', { ascending: false })

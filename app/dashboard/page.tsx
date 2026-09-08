@@ -321,6 +321,9 @@ export default function DashboardPage() {
       .eq('status', 'pago')
       // Transferência entre contas próprias não é receita nem despesa
       .is('transferencia_id', null)
+      // O pagamento agregado de uma fatura de cartão é a mesma despesa das
+      // compras já lançadas individualmente — contar as duas dobra o gasto
+      .is('fatura_cartao_id', null)
       .gte('data', dataInicio)
       .lte('data', dataFim)
       .order('data')
