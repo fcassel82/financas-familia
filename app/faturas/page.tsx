@@ -266,10 +266,7 @@ export default function FaturasPage() {
 
     async function sincronizar() {
       const hoje = hojeISO()
-      const pendentes: { insert: object[]; updates: { id: string; valor: number; data_vencimento: string }[] } = {
-        insert: [],
-        updates: [],
-      }
+      const paraInserir: object[] = []
 
       for (const cartao of cartoes) {
         if (cartao.dono_id !== userId && !isAdmin) continue
@@ -277,7 +274,7 @@ export default function FaturasPage() {
         for (const f of faturas) {
           if (f.fimCiclo > hoje) continue
           if (!f.pendencia && f.totalCompras > 0) {
-            pendentes.insert.push({
+            paraInserir.push({
               // 'data' guarda o vencimento enquanto está pendente, igual às demais
               // contas a pagar; ao marcar como paga passa a ser a data do pagamento.
               data: f.vencimento,
@@ -292,33 +289,20 @@ export default function FaturasPage() {
               dono_id: cartao.dono_id,
               lancado_por: userId,
             })
-          } else if (
-            f.pendencia &&
-            f.pendencia.status === 'pendente' &&
-            Math.abs(f.pendencia.valor - f.totalCompras) > 0.005
-          ) {
-            pendentes.updates.push({
-              id: f.pendencia.id,
-              valor: f.totalCompras,
-              data_vencimento: f.vencimento,
-            })
           }
+          // Só cria a cobrança quando ainda não existe nenhuma — nunca ajusta
+          // o valor de uma fatura já lançada. O agrupamento por data de compra
+          // é uma aproximação (depende do dia de fechamento cadastrado, que
+          // pode não bater exatamente com o corte real do banco) e não deve
+          // sobrescrever silenciosamente um valor já conferido com a fatura
+          // real (CSV/PDF do banco) — use "Editar valor" para corrigi-lo.
         }
       }
 
-      let precisaRecarregar = false
-      if (pendentes.insert.length > 0) {
-        const { error } = await supabase.from('transacoes').insert(pendentes.insert)
-        if (!error) precisaRecarregar = true
+      if (paraInserir.length > 0) {
+        const { error } = await supabase.from('transacoes').insert(paraInserir)
+        if (!error) carregar()
       }
-      for (const u of pendentes.updates) {
-        const { error } = await supabase
-          .from('transacoes')
-          .update({ valor: u.valor, data_vencimento: u.data_vencimento })
-          .eq('id', u.id)
-        if (!error) precisaRecarregar = true
-      }
-      if (precisaRecarregar) carregar()
     }
     sincronizar()
   }, [carregando, cartoes, faturasPorCartao, userId, isAdmin, carregar])
@@ -345,6 +329,42 @@ export default function FaturasPage() {
   const [pagando, setPagando] = useState<{ cartao: Cartao; fatura: Fatura } | null>(null)
   const [formPagar, setFormPagar] = useState({ data: hojeISO(), valor: '', conta_id: '' })
   const [processandoPagamento, setProcessandoPagamento] = useState(false)
+
+  // ---------- Editar valor de uma fatura ainda pendente ----------
+  // Existe porque o valor calculado a partir da data de compra é só uma
+  // aproximação (depende do dia de fechamento cadastrado no cartão, que pode
+  // não bater com o corte real do banco perto da virada do mês) — aqui dá
+  // pra corrigir o valor pra bater exatamente com o total da fatura real
+  // (CSV/PDF do banco), sem que a sincronização automática desfaça depois.
+  const [editando, setEditando] = useState<{ cartao: Cartao; fatura: Fatura } | null>(null)
+  const [valorEditado, setValorEditado] = useState('')
+  const [salvandoValorEditado, setSalvandoValorEditado] = useState(false)
+
+  function abrirEditarValor(cartao: Cartao, fatura: Fatura) {
+    setEditando({ cartao, fatura })
+    setValorEditado(String(fatura.pendencia?.valor ?? fatura.totalCompras))
+    setMensagem('')
+  }
+
+  async function salvarValorEditado(e: React.FormEvent) {
+    e.preventDefault()
+    if (!editando?.fatura.pendencia) return
+    setSalvandoValorEditado(true)
+    setMensagem('')
+
+    const { error } = await supabase
+      .from('transacoes')
+      .update({ valor: parseFloat(valorEditado) })
+      .eq('id', editando.fatura.pendencia.id)
+
+    setSalvandoValorEditado(false)
+    if (error) {
+      setMensagem('Erro ao salvar: ' + error.message)
+      return
+    }
+    setEditando(null)
+    carregar()
+  }
 
   function abrirPagar(cartao: Cartao, fatura: Fatura) {
     setPagando({ cartao, fatura })
@@ -930,7 +950,13 @@ export default function FaturasPage() {
                   ) : (
                     <ul className="divide-y divide-borda">
                       {faturas.map((f) => (
-                        <FaturaLinha key={f.competencia} cartao={cartao} fatura={f} onPagar={abrirPagar} />
+                        <FaturaLinha
+                          key={f.competencia}
+                          cartao={cartao}
+                          fatura={f}
+                          onPagar={abrirPagar}
+                          onEditarValor={abrirEditarValor}
+                        />
                       ))}
                     </ul>
                   )}
@@ -991,6 +1017,35 @@ export default function FaturasPage() {
         )}
       </Modal>
 
+      <Modal aberto={!!editando} titulo="Editar valor da fatura" onFechar={() => setEditando(null)}>
+        {editando && (
+          <form onSubmit={salvarValorEditado} className="space-y-4">
+            <p className="text-sm text-texto-suave">
+              {editando.cartao.nome} · {rotuloMesLongo(editando.fatura.competencia)}
+            </p>
+            <p className="text-xs text-texto-suave">
+              Use para corrigir o valor pra bater exatamente com o total da fatura real (CSV/PDF do
+              banco) — o cálculo automático é só uma aproximação pela data de compra.
+            </p>
+
+            <Campo rotulo="Valor da fatura (R$)">
+              <InputMoeda valor={valorEditado} onChange={setValorEditado} required />
+            </Campo>
+
+            <Mensagem texto={mensagem} />
+
+            <div className="flex justify-end gap-2 pt-2">
+              <BotaoSecundario type="button" onClick={() => setEditando(null)}>
+                Cancelar
+              </BotaoSecundario>
+              <BotaoPrimario type="submit" disabled={salvandoValorEditado}>
+                {salvandoValorEditado ? 'Salvando...' : 'Salvar valor'}
+              </BotaoPrimario>
+            </div>
+          </form>
+        )}
+      </Modal>
+
       {csvBruto && (
         <ImportarCsvModal
           colunas={csvBruto.colunas}
@@ -1008,10 +1063,12 @@ function FaturaLinha({
   cartao,
   fatura,
   onPagar,
+  onEditarValor,
 }: {
   cartao: Cartao
   fatura: Fatura
   onPagar: (cartao: Cartao, fatura: Fatura) => void
+  onEditarValor: (cartao: Cartao, fatura: Fatura) => void
 }) {
   const [aberta, setAberta] = useState(false)
   const total = fatura.pendencia ? fatura.pendencia.valor : fatura.totalCompras
@@ -1030,6 +1087,14 @@ function FaturaLinha({
         <div className="flex shrink-0 items-center gap-3">
           <span className="whitespace-nowrap text-sm font-semibold text-texto">{moeda(total)}</span>
           <BadgeStatus fatura={fatura} />
+          {podePagar && (
+            <button
+              onClick={() => onEditarValor(cartao, fatura)}
+              className="whitespace-nowrap text-xs font-medium text-texto-suave hover:underline"
+            >
+              Editar valor
+            </button>
+          )}
           {podePagar && (
             <button
               onClick={() => onPagar(cartao, fatura)}
