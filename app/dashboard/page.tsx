@@ -15,24 +15,41 @@ import {
   YAxis,
 } from 'recharts'
 import { supabase } from '@/lib/supabaseClient'
-import { moeda, rotuloMesCurto } from '@/lib/formato'
-import { CabecalhoPagina, EstadoVazio, Pagina, SeletorMultiplo, classeInput } from '@/components/ui'
+import { dataBR, hojeISO, moeda, rotuloMesCurto } from '@/lib/formato'
+import {
+  BotaoPrimario,
+  BotaoSecundario,
+  CabecalhoPagina,
+  Campo,
+  EstadoVazio,
+  InputMoeda,
+  Mensagem,
+  Modal,
+  Pagina,
+  SeletorMultiplo,
+  classeInput,
+} from '@/components/ui'
 
 type TransacaoResumo = {
+  id: string
   data: string
+  descricao: string
   valor: number
   tipo: string
   escopo: string
   dono_id: string
+  categoria_id: string | null
+  subcategoria_id: string | null
   categorias: { nome: string } | null
+  subcategorias: { nome: string } | null
   contas: { nome: string } | null
   cartoes_credito: { nome: string } | null
 }
 
 type Membro = { id: string; nome: string }
-type Categoria = { id: string; nome: string }
+type Categoria = { id: string; nome: string; tipo: string }
 type Subcategoria = { id: string; categoria_id: string; nome: string }
-type Periodo = 'mes' | '3m' | '6m' | 'ano'
+type Periodo = 'mes' | '3m' | '6m' | 'ano' | 'personalizado'
 type Escopo = 'todos' | 'familiar' | 'pessoal'
 
 const CORES_CATEGORICAS = [
@@ -49,7 +66,7 @@ const COR_OUTRAS = '#94a3b8'
 const COR_RECEITA = '#0e9f6e'
 const COR_DESPESA = '#dc4c4c'
 
-const ROTULO_PERIODO: Record<Periodo, string> = {
+const ROTULO_PERIODO: Record<Exclude<Periodo, 'personalizado'>, string> = {
   mes: 'Este mês',
   '3m': '3 meses',
   '6m': '6 meses',
@@ -60,7 +77,21 @@ function chaveDoMes(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
 }
 
-function mesesDoPeriodo(periodo: Periodo): string[] {
+/** Meses (chave "2026-06") cobertos pelo período — usado pra agrupar a Evolução Mensal */
+function mesesDoPeriodo(periodo: Periodo, dataInicioCustom: string, dataFimCustom: string): string[] {
+  if (periodo === 'personalizado') {
+    const [anoI, mesI] = dataInicioCustom.split('-').map(Number)
+    const [anoF, mesF] = dataFimCustom.split('-').map(Number)
+    const chaves: string[] = []
+    let cursor = new Date(anoI, mesI - 1, 1)
+    const fim = new Date(anoF, mesF - 1, 1)
+    while (cursor <= fim) {
+      chaves.push(chaveDoMes(cursor))
+      cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1)
+    }
+    return chaves
+  }
+
   const hoje = new Date()
   const referencia = new Date(hoje.getFullYear(), hoje.getMonth(), 1)
 
@@ -191,6 +222,8 @@ export default function DashboardPage() {
   const [carregando, setCarregando] = useState(true)
 
   const [periodo, setPeriodo] = useState<Periodo>('6m')
+  const [dataInicioCustom, setDataInicioCustom] = useState(() => `${hojeISO().slice(0, 7)}-01`)
+  const [dataFimCustom, setDataFimCustom] = useState(() => hojeISO())
   const [escopoFiltro, setEscopoFiltro] = useState<Escopo>('todos')
   const [membroFiltro, setMembroFiltro] = useState('')
   const [membros, setMembros] = useState<Membro[]>([])
@@ -222,7 +255,7 @@ export default function DashboardPage() {
     }
     async function carregarCategorias() {
       const [{ data: cats }, { data: subs }] = await Promise.all([
-        supabase.from('categorias').select('id, nome').order('nome'),
+        supabase.from('categorias').select('id, nome, tipo').order('nome'),
         supabase.from('subcategorias').select('id, categoria_id, nome').order('nome'),
       ])
       if (cats) setCategorias(cats)
@@ -253,21 +286,26 @@ export default function DashboardPage() {
     [subcategorias, categoriasFiltro]
   )
 
-  const mesesChaves = useMemo(() => mesesDoPeriodo(periodo), [periodo])
+  const mesesChaves = useMemo(
+    () => mesesDoPeriodo(periodo, dataInicioCustom, dataFimCustom),
+    [periodo, dataInicioCustom, dataFimCustom]
+  )
 
   const carregar = useCallback(async () => {
-    const dataInicio = `${mesesChaves[0]}-01`
+    const dataInicio = periodo === 'personalizado' ? dataInicioCustom : `${mesesChaves[0]}-01`
+    const dataFim = periodo === 'personalizado' ? dataFimCustom : hojeISO()
 
     let query = supabase
       .from('transacoes')
       .select(
-        'data, valor, tipo, escopo, dono_id, categoria_id, subcategoria_id, categorias(nome), contas(nome), cartoes_credito!cartao_id(nome)'
+        'id, data, descricao, valor, tipo, escopo, dono_id, categoria_id, subcategoria_id, categorias(nome), subcategorias(nome), contas(nome), cartoes_credito!cartao_id(nome)'
       )
       // Só o que já foi efetivado: contas a pagar em aberto não são gasto realizado
       .eq('status', 'pago')
       // Transferência entre contas próprias não é receita nem despesa
       .is('transferencia_id', null)
       .gte('data', dataInicio)
+      .lte('data', dataFim)
       .order('data')
 
     if (escopoFiltro !== 'todos') query = query.eq('escopo', escopoFiltro)
@@ -279,7 +317,17 @@ export default function DashboardPage() {
 
     if (!error && data) setTransacoes(data as unknown as TransacaoResumo[])
     setCarregando(false)
-  }, [mesesChaves, escopoFiltro, membroFiltro, isAdmin, categoriasFiltro, subcategoriasFiltro])
+  }, [
+    mesesChaves,
+    periodo,
+    dataInicioCustom,
+    dataFimCustom,
+    escopoFiltro,
+    membroFiltro,
+    isAdmin,
+    categoriasFiltro,
+    subcategoriasFiltro,
+  ])
 
   useEffect(() => {
     // Busca de dados: o estado só muda depois do await da consulta, mas a regra
@@ -287,6 +335,64 @@ export default function DashboardPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     carregar()
   }, [carregar])
+
+  // ---------- Editar lançamento sem sair da tela de Relatórios ----------
+  const [editando, setEditando] = useState<TransacaoResumo | null>(null)
+  const [formEdicao, setFormEdicao] = useState({
+    descricao: '',
+    valor: '',
+    data: '',
+    categoria_id: '',
+    subcategoria_id: '',
+    escopo: 'pessoal',
+  })
+  const [salvandoEdicao, setSalvandoEdicao] = useState(false)
+  const [mensagemEdicao, setMensagemEdicao] = useState('')
+
+  function abrirEdicao(t: TransacaoResumo) {
+    setEditando(t)
+    setFormEdicao({
+      descricao: t.descricao,
+      valor: String(t.valor),
+      data: t.data,
+      categoria_id: t.categoria_id ?? '',
+      subcategoria_id: t.subcategoria_id ?? '',
+      escopo: t.escopo,
+    })
+    setMensagemEdicao('')
+  }
+
+  async function salvarEdicao(e: React.FormEvent) {
+    e.preventDefault()
+    if (!editando) return
+    setSalvandoEdicao(true)
+    setMensagemEdicao('')
+
+    const { error } = await supabase
+      .from('transacoes')
+      .update({
+        descricao: formEdicao.descricao,
+        valor: parseFloat(formEdicao.valor),
+        data: formEdicao.data,
+        categoria_id: formEdicao.categoria_id || null,
+        subcategoria_id: formEdicao.subcategoria_id || null,
+        escopo: formEdicao.escopo,
+      })
+      .eq('id', editando.id)
+
+    setSalvandoEdicao(false)
+    if (error) {
+      setMensagemEdicao('Erro ao salvar: ' + error.message)
+      return
+    }
+    setEditando(null)
+    carregar()
+  }
+
+  const transacoesOrdenadas = useMemo(
+    () => [...transacoes].sort((a, b) => b.data.localeCompare(a.data)),
+    [transacoes]
+  )
 
   const evolucaoMensal = useMemo(() => {
     const porMes = new Map(mesesChaves.map((chave) => [chave, { receitas: 0, despesas: 0 }]))
@@ -362,12 +468,41 @@ export default function DashboardPage() {
         <div>
           <p className="mb-1.5 text-xs font-medium text-texto-suave">Período</p>
           <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
-            {(Object.keys(ROTULO_PERIODO) as Periodo[]).map((p) => (
+            {(Object.keys(ROTULO_PERIODO) as Exclude<Periodo, 'personalizado'>[]).map((p) => (
               <button key={p} onClick={() => setPeriodo(p)} className={classeBotao(periodo === p)}>
                 {ROTULO_PERIODO[p]}
               </button>
             ))}
+            <button
+              onClick={() => setPeriodo('personalizado')}
+              className={classeBotao(periodo === 'personalizado')}
+            >
+              Entre datas
+            </button>
           </div>
+
+          {periodo === 'personalizado' && (
+            <div className="mt-2 grid gap-3 sm:grid-cols-2">
+              <Campo rotulo="De">
+                <input
+                  type="date"
+                  className={classeInput}
+                  value={dataInicioCustom}
+                  max={dataFimCustom}
+                  onChange={(e) => setDataInicioCustom(e.target.value)}
+                />
+              </Campo>
+              <Campo rotulo="Até">
+                <input
+                  type="date"
+                  className={classeInput}
+                  value={dataFimCustom}
+                  min={dataInicioCustom}
+                  onChange={(e) => setDataFimCustom(e.target.value)}
+                />
+              </Campo>
+            </div>
+          )}
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2">
@@ -439,6 +574,51 @@ export default function DashboardPage() {
             <CartaoKpi titulo="Saldo" valor={moeda(saldo)} cor="#1c3a52" />
             <CartaoKpi titulo="Lançamentos" valor={String(transacoes.length)} cor="#159d76" />
           </div>
+
+          {/* Lançamentos do filtro de categoria/subcategoria — pra investigar e corrigir
+              sem precisar ir pra tela de Lançamentos */}
+          {(categoriasFiltro.length > 0 || subcategoriasFiltro.length > 0) && (
+            <section className="cartao mb-5 overflow-hidden">
+              <div className="border-b border-borda p-4">
+                <h2 className="text-sm font-semibold text-texto">Lançamentos do período</h2>
+                <p className="text-xs text-texto-suave">
+                  {transacoesOrdenadas.length} lançamento
+                  {transacoesOrdenadas.length === 1 ? '' : 's'} nas categorias selecionadas
+                </p>
+              </div>
+              <ul className="max-h-[480px] divide-y divide-borda overflow-y-auto">
+                {transacoesOrdenadas.map((t) => (
+                  <li key={t.id} className="flex items-center justify-between gap-3 p-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm text-texto">{t.descricao}</p>
+                      <p className="truncate text-xs text-texto-suave">
+                        {dataBR(t.data)} · {t.categorias?.nome ?? 'Sem categoria'}
+                        {t.subcategorias?.nome ? ` / ${t.subcategorias.nome}` : ''}
+                        {t.contas?.nome || t.cartoes_credito?.nome
+                          ? ` · ${t.contas?.nome ?? t.cartoes_credito?.nome}`
+                          : ''}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-3">
+                      <span
+                        className={`whitespace-nowrap text-sm font-semibold ${
+                          t.tipo === 'receita' ? 'text-receita' : 'text-despesa'
+                        }`}
+                      >
+                        {t.tipo === 'receita' ? '+' : '−'} {moeda(t.valor)}
+                      </span>
+                      <button
+                        onClick={() => abrirEdicao(t)}
+                        className="whitespace-nowrap text-xs font-medium text-primaria hover:underline"
+                      >
+                        Editar
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
 
           {/* Centros de custo: onde o dinheiro mais some */}
           <section className="cartao mb-5 p-4">
@@ -578,6 +758,100 @@ export default function DashboardPage() {
           </div>
         </>
       )}
+
+      <Modal aberto={!!editando} titulo="Editar lançamento" onFechar={() => setEditando(null)}>
+        {editando && (
+          <form onSubmit={salvarEdicao} className="space-y-4">
+            <Campo rotulo="Descrição">
+              <input
+                className={classeInput}
+                value={formEdicao.descricao}
+                onChange={(e) => setFormEdicao({ ...formEdicao, descricao: e.target.value })}
+                required
+              />
+            </Campo>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Campo rotulo="Data">
+                <input
+                  type="date"
+                  className={classeInput}
+                  value={formEdicao.data}
+                  onChange={(e) => setFormEdicao({ ...formEdicao, data: e.target.value })}
+                  required
+                />
+              </Campo>
+              <Campo rotulo="Valor (R$)">
+                <InputMoeda
+                  valor={formEdicao.valor}
+                  onChange={(v) => setFormEdicao({ ...formEdicao, valor: v })}
+                  required
+                />
+              </Campo>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Campo rotulo="Categoria">
+                <select
+                  className={classeInput}
+                  value={formEdicao.categoria_id}
+                  onChange={(e) =>
+                    setFormEdicao({ ...formEdicao, categoria_id: e.target.value, subcategoria_id: '' })
+                  }
+                >
+                  <option value="">Sem categoria</option>
+                  {categorias
+                    .filter((c) => c.tipo === editando.tipo)
+                    .map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.nome}
+                      </option>
+                    ))}
+                </select>
+              </Campo>
+              <Campo rotulo="Subcategoria">
+                <select
+                  className={classeInput}
+                  value={formEdicao.subcategoria_id}
+                  onChange={(e) => setFormEdicao({ ...formEdicao, subcategoria_id: e.target.value })}
+                  disabled={!formEdicao.categoria_id}
+                >
+                  <option value="">Nenhuma</option>
+                  {subcategorias
+                    .filter((s) => s.categoria_id === formEdicao.categoria_id)
+                    .map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.nome}
+                      </option>
+                    ))}
+                </select>
+              </Campo>
+            </div>
+
+            <Campo rotulo="Este lançamento é...">
+              <select
+                className={classeInput}
+                value={formEdicao.escopo}
+                onChange={(e) => setFormEdicao({ ...formEdicao, escopo: e.target.value })}
+              >
+                <option value="familiar">Familiar (todos veem)</option>
+                <option value="pessoal">Pessoal (só eu vejo)</option>
+              </select>
+            </Campo>
+
+            <Mensagem texto={mensagemEdicao} />
+
+            <div className="flex justify-end gap-2 pt-2">
+              <BotaoSecundario type="button" onClick={() => setEditando(null)}>
+                Cancelar
+              </BotaoSecundario>
+              <BotaoPrimario type="submit" disabled={salvandoEdicao}>
+                {salvandoEdicao ? 'Salvando...' : 'Salvar'}
+              </BotaoPrimario>
+            </div>
+          </form>
+        )}
+      </Modal>
     </Pagina>
   )
 }
