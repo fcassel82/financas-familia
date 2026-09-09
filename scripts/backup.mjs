@@ -9,95 +9,16 @@
  * O arquivo é salvo em ~/Documents/Finanças/backups/.
  */
 
-import { readFileSync, writeFileSync, mkdirSync } from 'fs'
+import { writeFileSync, mkdirSync } from 'fs'
 import { homedir } from 'os'
-import { join, dirname } from 'path'
-import { fileURLToPath } from 'url'
-import { createInterface } from 'readline/promises'
+import { join } from 'path'
+import { lerEnvLocal, entrar } from './_supabase.mjs'
 
-const raizProjeto = join(dirname(fileURLToPath(import.meta.url)), '..')
-
-function lerEnvLocal() {
-  const conteudo = readFileSync(join(raizProjeto, '.env.local'), 'utf8')
-  const env = {}
-  for (const linha of conteudo.split('\n')) {
-    const [chave, ...resto] = linha.split('=')
-    if (chave && resto.length) env[chave.trim()] = resto.join('=').trim()
-  }
-  return env
-}
-
-const env = lerEnvLocal()
-const url = env.NEXT_PUBLIC_SUPABASE_URL
-const anonKey = env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-
-if (!url || !anonKey) {
-  console.error('Erro: NEXT_PUBLIC_SUPABASE_URL / ANON_KEY não encontrados em .env.local')
-  process.exit(1)
-}
-
-/**
- * Pergunta a senha sem ecoar o que é digitado. O `readline` normal imprime
- * cada tecla, o que deixa a senha visível na tela e no scrollback do terminal.
- */
-async function perguntarSenha(rotulo) {
-  process.stdout.write(rotulo)
-  const tty = process.stdin.isTTY
-  if (tty) process.stdin.setRawMode(true)
-
-  return new Promise((resolve) => {
-    let senha = ''
-    function aoReceber(pedaco) {
-      const texto = pedaco.toString('utf8')
-      for (const caractere of texto) {
-        if (caractere === '\n' || caractere === '\r' || caractere === '') {
-          if (tty) process.stdin.setRawMode(false)
-          process.stdin.removeListener('data', aoReceber)
-          process.stdin.pause()
-          process.stdout.write('\n')
-          resolve(senha)
-          return
-        }
-        if (caractere === '') {
-          // Ctrl+C
-          if (tty) process.stdin.setRawMode(false)
-          process.stdout.write('\n')
-          process.exit(130)
-        }
-        if (caractere === '' || caractere === '\b') {
-          senha = senha.slice(0, -1)
-        } else {
-          senha += caractere
-        }
-      }
-    }
-    process.stdin.resume()
-    process.stdin.on('data', aoReceber)
-  })
-}
-
-const rl = createInterface({ input: process.stdin, output: process.stdout })
-const email = await rl.question('E-mail: ')
-rl.close()
-const senha = await perguntarSenha('Senha (não aparece na tela): ')
-
-const respLogin = await fetch(`${url}/auth/v1/token?grant_type=password`, {
-  method: 'POST',
-  headers: { apikey: anonKey, 'Content-Type': 'application/json' },
-  body: JSON.stringify({ email, password: senha }),
-})
-
-if (!respLogin.ok) {
-  console.error('Erro ao autenticar. Confira e-mail e senha.')
-  process.exit(1)
-}
-
-const { access_token: token } = await respLogin.json()
+const api = await entrar(lerEnvLocal())
 
 /**
  * Todas as tabelas de `public`. Se você criar uma tabela nova, acrescente aqui
- * — o script avisa no fim se o banco tiver alguma que não está nesta lista,
- * mas ele só consegue avisar sobre o que consegue ler.
+ * — nada avisa sozinho, e a falta passa despercebida até a hora de restaurar.
  */
 const tabelas = [
   'perfis',
@@ -117,39 +38,12 @@ const tabelas = [
   'dividas',
 ]
 
-/** O PostgREST corta a resposta num teto (1.000 por padrão), então lemos em páginas. */
-const TAMANHO_PAGINA = 1000
-
-async function lerTabelaInteira(tabela) {
-  const linhas = []
-  for (let inicio = 0; ; inicio += TAMANHO_PAGINA) {
-    const fim = inicio + TAMANHO_PAGINA - 1
-    const resp = await fetch(`${url}/rest/v1/${tabela}?select=*&order=id`, {
-      headers: {
-        apikey: anonKey,
-        Authorization: `Bearer ${token}`,
-        Range: `${inicio}-${fim}`,
-        'Range-Unit': 'items',
-      },
-    })
-    if (!resp.ok) {
-      const erro = new Error(`HTTP ${resp.status}`)
-      erro.status = resp.status
-      throw erro
-    }
-    const pagina = await resp.json()
-    linhas.push(...pagina)
-    // Página incompleta significa que acabou
-    if (pagina.length < TAMANHO_PAGINA) return linhas
-  }
-}
-
 const backup = { gerado_em: new Date().toISOString(), tabelas: {} }
 const falhas = []
 
 for (const tabela of tabelas) {
   try {
-    const dados = await lerTabelaInteira(tabela)
+    const dados = await api.lerTabelaInteira(tabela)
     backup.tabelas[tabela] = dados
     console.log(`${tabela}: ${dados.length} registros`)
   } catch (err) {
