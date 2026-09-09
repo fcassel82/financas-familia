@@ -84,6 +84,9 @@ export default function InicioPage() {
             // O pagamento agregado de uma fatura de cartão é a mesma despesa das
             // compras já lançadas individualmente — contar as duas dobra o gasto
             .is('fatura_cartao_id', null)
+            // Lançamento neutro (ex: adiantamento salarial já recebido fora do sistema)
+            // existe só pro saldo bater, não é receita/despesa real
+            .eq('neutro', false)
             .gte('data', inicio)
             .lte('data', fim)
             .order('data', { ascending: false }),
