@@ -583,26 +583,63 @@ export default function VeiculosPage() {
     const idsCombustivel = new Set((vinculosCombustivel ?? []).map((a) => a.transacao_id))
     const idsManutencao = new Set((vinculosManutencao ?? []).map((m) => m.transacao_id))
 
+    // Quando a compra é parcelada, só a parcela vinculada tem id batendo com o
+    // abastecimento/manutenção — as outras parcelas da mesma compra (mesma
+    // descrição-base + mesmo total de parcelas) já estão contabilizadas ali
+    // dentro e não devem voltar a aparecer como pendência a cada mês.
+    const chaveGrupo = (descricao: string, parcelaTotal: number | null) => {
+      if (!parcelaTotal || parcelaTotal <= 1) return null
+      const base = descricao.replace(/\s*\([0-9]+\/[0-9]+\)\s*$/, '').trim().toLowerCase()
+      return `${base}|${parcelaTotal}`
+    }
+
+    async function gruposJaVinculados(ids: Set<string>) {
+      if (ids.size === 0) return new Set<string>()
+      const { data } = await supabase
+        .from('transacoes')
+        .select('id, descricao, parcela_total')
+        .in('id', Array.from(ids))
+      const grupos = new Set<string>()
+      for (const t of data ?? []) {
+        const chave = chaveGrupo(t.descricao, t.parcela_total)
+        if (chave) grupos.add(chave)
+      }
+      return grupos
+    }
+
+    const [gruposCombustivel, gruposManutencao] = await Promise.all([
+      gruposJaVinculados(idsCombustivel),
+      gruposJaVinculados(idsManutencao),
+    ])
+
     if (subCombustivel) {
       const { data } = await supabase
         .from('transacoes')
-        .select('id, data, descricao, valor')
+        .select('id, data, descricao, valor, parcela_total')
         .eq('categoria_id', categoriaTransporte.id)
         .eq('subcategoria_id', subCombustivel.id)
         .eq('status', 'pago')
         .order('data', { ascending: false })
-      setCombustivelSemVinculo(((data ?? []) as LancamentoNaoVinculado[]).filter((t) => !idsCombustivel.has(t.id)))
+      setCombustivelSemVinculo(
+        ((data ?? []) as (LancamentoNaoVinculado & { parcela_total: number | null })[]).filter(
+          (t) => !idsCombustivel.has(t.id) && !gruposCombustivel.has(chaveGrupo(t.descricao, t.parcela_total) ?? '')
+        )
+      )
     }
 
     if (subManutencao) {
       const { data } = await supabase
         .from('transacoes')
-        .select('id, data, descricao, valor')
+        .select('id, data, descricao, valor, parcela_total')
         .eq('categoria_id', categoriaTransporte.id)
         .eq('subcategoria_id', subManutencao.id)
         .eq('status', 'pago')
         .order('data', { ascending: false })
-      setManutencaoSemVinculo(((data ?? []) as LancamentoNaoVinculado[]).filter((t) => !idsManutencao.has(t.id)))
+      setManutencaoSemVinculo(
+        ((data ?? []) as (LancamentoNaoVinculado & { parcela_total: number | null })[]).filter(
+          (t) => !idsManutencao.has(t.id) && !gruposManutencao.has(chaveGrupo(t.descricao, t.parcela_total) ?? '')
+        )
+      )
     }
   }, [categorias, subcategorias])
 
