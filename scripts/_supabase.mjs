@@ -126,6 +126,16 @@ export async function entrar({ url, anonKey }) {
       }
     },
 
+    async inserir(tabela, registro) {
+      const resp = await fetch(`${url}/rest/v1/${tabela}`, {
+        method: 'POST',
+        headers: { ...cabecalhos, 'Content-Type': 'application/json', Prefer: 'return=representation' },
+        body: JSON.stringify(registro),
+      })
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${await resp.text()}`)
+      return resp.json()
+    },
+
     async atualizar(tabela, id, campos) {
       const resp = await fetch(`${url}/rest/v1/${tabela}?id=eq.${id}`, {
         method: 'PATCH',
