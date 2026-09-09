@@ -22,6 +22,7 @@ type Troca = {
   id: string
   data: string
   valor: number
+  quantidade: number
   fornecedor: string | null
   observacoes: string | null
 }
@@ -29,9 +30,14 @@ type Troca = {
 const FORM_VAZIO = {
   data: hojeISO(),
   valor: '',
+  quantidade: '1',
   fornecedor: '',
   observacoes: '',
 }
+
+// Estimativa fixa pra dar uma ideia de custo por banho — o mesmo botijão também
+// alimenta o fogão, então o custo real por banho é menor do que esta conta mostra.
+const BANHOS_POR_DIA = 4
 
 export default function GasPage() {
   const [trocas, setTrocas] = useState<Troca[]>([])
@@ -45,7 +51,7 @@ export default function GasPage() {
   const carregar = useCallback(async () => {
     const { data } = await supabase
       .from('trocas_gas')
-      .select('id, data, valor, fornecedor, observacoes')
+      .select('id, data, valor, quantidade, fornecedor, observacoes')
       .order('data', { ascending: false })
     setTrocas((data ?? []) as Troca[])
     setCarregando(false)
@@ -77,12 +83,23 @@ export default function GasPage() {
     const ultima = comDuracao[0] ?? null
     const diasEmUso = ultima ? -diasAte(ultima.data) : null
 
+    // Preço médio por botijão — não por compra: uma compra de 2 botijões de
+    // uma vez (valor em dobro) não pode contar como se fosse um botijão caro
+    const totalBotijoes = trocas.reduce((s, t) => s + (Number(t.quantidade) || 1), 0)
     const precoMedio =
-      trocas.length > 0 ? trocas.reduce((s, t) => s + Number(t.valor), 0) / trocas.length : null
+      totalBotijoes > 0
+        ? trocas.reduce((s, t) => s + Number(t.valor), 0) / totalBotijoes
+        : null
+
+    // Estimativa de custo por banho: divide o custo diário pelos banhos do dia.
+    // É só uma referência — parte desse gás vai pro fogão, então o banho em si
+    // custa menos que isso.
+    const custoBanhoMedio = custoDiaMedio !== null ? custoDiaMedio / BANHOS_POR_DIA : null
 
     return {
       duracaoMedia,
       custoDiaMedio,
+      custoBanhoMedio,
       precoMedio,
       ultima,
       diasEmUso,
@@ -107,6 +124,7 @@ export default function GasPage() {
     setForm({
       data: t.data,
       valor: String(t.valor),
+      quantidade: String(t.quantidade ?? 1),
       fornecedor: t.fornecedor ?? '',
       observacoes: t.observacoes ?? '',
     })
@@ -125,6 +143,7 @@ export default function GasPage() {
     const registro = {
       data: form.data,
       valor: parseFloat(form.valor || '0'),
+      quantidade: Math.max(1, parseInt(form.quantidade || '1', 10)),
       fornecedor: form.fornecedor || null,
       observacoes: form.observacoes || null,
     }
@@ -220,7 +239,7 @@ export default function GasPage() {
           )}
 
           {/* Médias */}
-          <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <div className="mb-2 grid grid-cols-2 gap-3 lg:grid-cols-5">
             <div className="cartao p-3">
               <p className="text-xs text-texto-suave">Duração média</p>
               <p className="whitespace-nowrap text-base font-semibold text-texto sm:text-lg">
@@ -234,7 +253,13 @@ export default function GasPage() {
               </p>
             </div>
             <div className="cartao p-3">
-              <p className="text-xs text-texto-suave">Preço médio</p>
+              <p className="text-xs text-texto-suave">Custo por banho</p>
+              <p className="whitespace-nowrap text-base font-semibold text-texto sm:text-lg">
+                {resumo.custoBanhoMedio ? moeda(resumo.custoBanhoMedio) : '—'}
+              </p>
+            </div>
+            <div className="cartao p-3">
+              <p className="text-xs text-texto-suave">Preço médio (botijão)</p>
               <p className="whitespace-nowrap text-base font-semibold text-texto sm:text-lg">
                 {resumo.precoMedio ? moeda(resumo.precoMedio) : '—'}
               </p>
@@ -246,6 +271,13 @@ export default function GasPage() {
               </p>
             </div>
           </div>
+
+          {resumo.custoBanhoMedio !== null && (
+            <p className="mb-4 text-xs text-texto-suave">
+              Estimativa com base em {BANHOS_POR_DIA} banhos por dia — como o mesmo botijão também
+              alimenta o fogão, o custo real de cada banho é um pouco menor que isso.
+            </p>
+          )}
         </>
       )}
 
@@ -268,6 +300,11 @@ export default function GasPage() {
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium text-texto">
                   {dataBR(t.data)}
+                  {t.quantidade > 1 && (
+                    <span className="ml-2 rounded bg-fundo px-1.5 py-0.5 text-xs font-normal text-texto-suave">
+                      {t.quantidade} botijões
+                    </span>
+                  )}
                   {i === 0 && (
                     <span className="ml-2 rounded bg-alerta/10 px-1.5 py-0.5 text-xs font-normal text-alerta">
                       em uso
@@ -327,6 +364,16 @@ export default function GasPage() {
               <InputMoeda valor={form.valor} onChange={(v) => setForm({ ...form, valor: v })} required />
             </Campo>
           </div>
+
+          <Campo rotulo="Quantidade de botijões nesta compra">
+            <input
+              type="number"
+              min="1"
+              className={classeInput}
+              value={form.quantidade}
+              onChange={(e) => setForm({ ...form, quantidade: e.target.value })}
+            />
+          </Campo>
 
           <Campo rotulo="Fornecedor (opcional)">
             <input
