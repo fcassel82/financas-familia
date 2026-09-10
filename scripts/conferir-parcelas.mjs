@@ -15,8 +15,17 @@
  * O importador já foi corrigido (commit 7867d9c), mas o que entrou antes
  * disso continua errado no banco. Este script acha e conserta.
  *
+ * QUAL DATA USAR
  * A data correta de cada parcela é  data_da_compra + (numero - 1) meses,
- * que é a mesma regra de lib/parcelas.ts.
+ * a mesma regra de lib/parcelas.ts.
+ *
+ * Datar a parcela no VENCIMENTO da fatura parece mais natural ("foi aí que
+ * eu paguei"), mas quebra a tela /faturas: ela descobre a que fatura um
+ * lançamento pertence chamando competenciaDaCompra(data, ...), e como o C6
+ * fecha dia 4 e vence dia 10, uma data no dia 10 cai depois do fechamento e
+ * é jogada para a fatura seguinte — todas as parcelas apareceriam um mês
+ * adiante. Quem responde "em que fatura isto foi cobrado" é o campo
+ * `fatura_competencia`, que este script preenche.
  *
  * Nada é gravado sem confirmação.
  */
@@ -87,9 +96,17 @@ for (const arquivo of arquivos) {
     const valor = Math.round(Number(campos[iValor]) * 100) / 100
     const compra = dataBrParaDate(campos[iData])
 
+    // "Fatura_2026-01-10.csv" → competência "2026-01-01" (mês de vencimento)
+    const venc = arquivo.match(/(\d{4})-(\d{2})-(\d{2})/)
+    const competencia = venc ? `${venc[1]}-${venc[2]}-01` : null
+
     const chave = `${descricao}|${valor}|${paraISO(compra)}|${total}`
     if (!compras.has(chave)) compras.set(chave, { descricao, valor, compra, total, parcelas: new Map() })
-    compras.get(chave).parcelas.set(numero, { fatura: arquivo, dataCerta: somarMeses(compra, numero - 1) })
+    compras.get(chave).parcelas.set(numero, {
+      fatura: arquivo,
+      competencia,
+      dataCerta: somarMeses(compra, numero - 1),
+    })
   }
 }
 
@@ -111,27 +128,26 @@ for (const compra of compras.values()) {
   const usadas = new Set()
 
   for (const numero of [...compra.parcelas.keys()].sort((a, b) => a - b)) {
-    const { dataCerta } = compra.parcelas.get(numero)
+    const { dataCerta, competencia, fatura } = compra.parcelas.get(numero)
     const iso = paraISO(dataCerta)
 
     // Primeiro tenta casar pela data certa — assim rodar de novo não desfaz nada
     const casada = candidatas.find((t) => !usadas.has(t.id) && t.data === iso)
     if (casada) {
       usadas.add(casada.id)
-      if (casada.parcela_numero === numero && casada.parcela_total === compra.total) {
-        jaCertas++
-      } else {
-        corrigir.push({ linha: casada, compra, numero, iso, soParcela: true })
-      }
+      const numeracaoOk = casada.parcela_numero === numero && casada.parcela_total === compra.total
+      const competenciaOk = casada.fatura_competencia === competencia
+      if (numeracaoOk && competenciaOk) jaCertas++
+      else corrigir.push({ linha: casada, compra, numero, iso, competencia, fatura, soParcela: true })
       continue
     }
 
     const solta = candidatas.find((t) => !usadas.has(t.id))
     if (solta) {
       usadas.add(solta.id)
-      corrigir.push({ linha: solta, compra, numero, iso, soParcela: false })
+      corrigir.push({ linha: solta, compra, numero, iso, competencia, fatura, soParcela: false })
     } else {
-      ausentes.push({ compra, numero, iso })
+      ausentes.push({ compra, numero, iso, competencia, fatura })
     }
   }
 }
@@ -150,23 +166,34 @@ if (corrigir.length > 0) {
     `${'DESCRIÇÃO'.padEnd(26)} ${'VALOR'.padStart(10)} ${'PARC'.padStart(6)}  ${'ESTÁ EM'.padEnd(12)} ${'VAI PARA'.padEnd(12)} O QUE MUDA`
   )
   for (const c of corrigir) {
-    const muda = c.soParcela ? 'só a numeração' : 'data + numeração'
+    const muda = c.soParcela ? 'numeração/competência' : 'data + numeração + competência'
     console.log(
       `${c.compra.descricao.slice(0, 26).padEnd(26)} ${moeda(c.compra.valor).padStart(10)} ` +
         `${`${c.numero}/${c.compra.total}`.padStart(6)}  ${c.linha.data.padEnd(12)} ${c.iso.padEnd(12)} ${muda}`
     )
   }
+  console.log('\nA competência (em que fatura foi cobrado) vai junto, no campo fatura_competencia.')
 }
 
 if (ausentes.length > 0) {
   console.log('\n' + '─'.repeat(96))
   console.log(' PARCELAS QUE ESTÃO NA FATURA MAS NÃO NO APP')
   console.log('─'.repeat(96))
+  const porFatura = new Map()
   for (const a of ausentes) {
+    porFatura.set(a.fatura, (porFatura.get(a.fatura) ?? 0) + 1)
     console.log(
       `${a.compra.descricao.slice(0, 26).padEnd(26)} ${moeda(a.compra.valor).padStart(10)} ` +
-        `${`${a.numero}/${a.compra.total}`.padStart(6)}  → criar em ${a.iso}`
+        `${`${a.numero}/${a.compra.total}`.padStart(6)}  → criar em ${a.iso}   (${a.fatura})`
     )
+  }
+  console.log(
+    '\nSe TODAS as parcelas ausentes vierem da mesma fatura, provavelmente aquela fatura\n' +
+      'inteira ainda não foi importada — e aí é melhor importá-la por /faturas, que traz\n' +
+      'também as compras não parceladas, do que criar só estas linhas aqui.'
+  )
+  for (const [fatura, quantas] of porFatura) {
+    console.log(`  ${fatura}: ${quantas} parcela(s) ausente(s)`)
   }
 }
 
@@ -175,10 +202,19 @@ console.log(
   `${jaCertas} já corretas · ${corrigir.length} a corrigir · ${ausentes.length} a criar`
 )
 
-const resposta = await perguntar('\nAplicar? [s/N] ')
+const resposta = await perguntar('\nAplicar as correções? [s/N] ')
 if (resposta.trim().toLowerCase() !== 's') {
   console.log('Cancelado, nada foi alterado.')
   process.exit(0)
+}
+
+let criarAusentes = false
+if (ausentes.length > 0) {
+  const r = await perguntar(
+    `Criar também as ${ausentes.length} parcela(s) ausente(s)? ` +
+      'Diga não se preferir importar a fatura inteira por /faturas. [s/N] '
+  )
+  criarAusentes = r.trim().toLowerCase() === 's'
 }
 
 // ---------------------------------------------------------------- aplicar
@@ -187,11 +223,12 @@ for (const c of corrigir) {
     data: c.iso,
     parcela_numero: c.numero,
     parcela_total: c.compra.total,
+    fatura_competencia: c.competencia,
   })
   console.log(`  ✓ ${c.compra.descricao.slice(0, 30)} ${c.numero}/${c.compra.total} → ${c.iso}`)
 }
 
-for (const a of ausentes) {
+for (const a of criarAusentes ? ausentes : []) {
   // Copia os atributos de uma parcela irmã, para a linha nova nascer com a
   // mesma categoria, dono e cartão das outras.
   const irma = transacoes.find(
@@ -215,6 +252,7 @@ for (const a of ausentes) {
     cartao_id: irma.cartao_id,
     parcela_numero: a.numero,
     parcela_total: a.compra.total,
+    fatura_competencia: a.competencia,
   }
   await api.inserir('transacoes', nova)
   console.log(`  + ${a.compra.descricao.slice(0, 30)} ${a.numero}/${a.compra.total} em ${a.iso}`)
