@@ -21,6 +21,7 @@ import {
   IconeLista,
   IconeMais,
   IconeMenu,
+  IconePercentual,
   IconeSair,
   IconeSeta,
   IconeSofa,
@@ -46,6 +47,7 @@ const NAV_ANALISE: ItemNav[] = [
   { rota: '/extrato', rotulo: 'Extrato', Icone: IconeLista },
   { rota: '/faturas', rotulo: 'Faturas', Icone: IconeCartao },
   { rota: '/transferencias', rotulo: 'Transferências', Icone: IconeSeta },
+  { rota: '/calculadora-50-30-20', rotulo: 'Calculadora 50/30/20', Icone: IconePercentual },
 ]
 
 const NAV_PATRIMONIO: ItemNav[] = [
