@@ -121,10 +121,14 @@ const corrigir = []
 const ausentes = []
 let jaCertas = 0
 
+/**
+ * Casa por VALOR, não por descrição. A descrição da fatura é um código de
+ * maquininha ("MERCADOLIVRE*MERCADOL") e costuma ser renomeada depois para
+ * algo legível ("PAI Placa maquina") — casar por descrição faria o script
+ * reportar como ausente tudo o que foi renomeado, e criar duplicatas.
+ */
 for (const compra of compras.values()) {
-  const candidatas = transacoes.filter(
-    (t) => t.descricao === compra.descricao && Math.abs(Number(t.valor) - compra.valor) < 0.005
-  )
+  const candidatas = transacoes.filter((t) => Math.abs(Number(t.valor) - compra.valor) < 0.005)
   const usadas = new Set()
 
   for (const numero of [...compra.parcelas.keys()].sort((a, b) => a - b)) {
@@ -142,7 +146,13 @@ for (const compra of compras.values()) {
       continue
     }
 
-    const solta = candidatas.find((t) => !usadas.has(t.id))
+    // Sem data exata: aceita só quem estiver perto da data certa (a parcela
+    // errada costuma estar na data da compra, até ~2 anos antes). Sem essa
+    // janela, um valor repetido de outro mês seria "corrigido" por engano.
+    const limite = 760 * 24 * 60 * 60 * 1000
+    const solta = candidatas.find(
+      (t) => !usadas.has(t.id) && Math.abs(new Date(t.data) - dataCerta) <= limite
+    )
     if (solta) {
       usadas.add(solta.id)
       corrigir.push({ linha: solta, compra, numero, iso, competencia, fatura, soParcela: false })
