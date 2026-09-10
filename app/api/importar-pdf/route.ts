@@ -11,6 +11,23 @@ import { parseData, parseValor } from '@/lib/parseExtrato'
   WorkerMessageHandler,
 }
 
+/**
+ * Teto de tamanho do arquivo. Serve para dar uma mensagem clara em vez de o
+ * pedido morrer no meio: a Vercel corta o corpo de uma function em ~4,5 MB,
+ * então acima disso nem chegaríamos aqui — o cliente reduz a foto antes de
+ * enviar (lib/reduzirImagem.ts) justamente por causa disso.
+ */
+const TAMANHO_MAXIMO = 10 * 1024 * 1024
+
+function respostaTamanho(tamanho: number) {
+  const mb = (tamanho / 1024 / 1024).toFixed(1)
+  const teto = TAMANHO_MAXIMO / 1024 / 1024
+  return NextResponse.json(
+    { error: `Este PDF é grande demais (${mb} MB). O limite é ${teto} MB.` },
+    { status: 413 }
+  )
+}
+
 const REGEX_LINHA_DATA = /^(\d{2}\/\d{2}(?:\/\d{2,4})?)\s+(.*)$/
 const REGEX_VALOR_FIM = /(-?R?\$?\s?-?\d{1,3}(?:\.\d{3})*,\d{2}|-?\d{1,3}(?:,\d{3})*\.\d{2})\s*$/
 
@@ -90,6 +107,9 @@ export async function POST(request: NextRequest) {
   const senha = formData.get('senha')
   if (!(arquivo instanceof File)) {
     return NextResponse.json({ error: 'Arquivo não enviado.' }, { status: 400 })
+  }
+  if (arquivo.size > TAMANHO_MAXIMO) {
+    return respostaTamanho(arquivo.size)
   }
 
   try {
