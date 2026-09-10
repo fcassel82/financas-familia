@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabaseClient'
+import { buscarTudo } from '@/lib/buscarTudo'
 import {
   chaveMes,
   dataBR,
@@ -168,7 +169,7 @@ export default function TransacoesPage() {
     if (contaFiltro) query = query.eq('conta_id', contaFiltro)
     if (isAdmin && membroFiltro) query = query.eq('dono_id', membroFiltro)
 
-    const { data, error } = await query
+    const { data, error } = await buscarTudo((de, ate) => query.range(de, ate))
 
     if (!error && data) setTransacoes(data as unknown as Transacao[])
     setCarregando(false)

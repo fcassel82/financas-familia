@@ -15,6 +15,7 @@ import {
   YAxis,
 } from 'recharts'
 import { supabase } from '@/lib/supabaseClient'
+import { buscarTudo } from '@/lib/buscarTudo'
 import { dataBR, hojeISO, moeda, rotuloMesCurto } from '@/lib/formato'
 import {
   BotaoPrimario,
@@ -356,7 +357,10 @@ export default function DashboardPage() {
       }
     }
 
-    const { data, error } = await query
+    // Relatórios pode cobrir 12 meses ou um intervalo livre; sem paginar, o
+    // teto do PostgREST cortaria o período silenciosamente e os gráficos
+    // mostrariam menos do que existe.
+    const { data, error } = await buscarTudo((de, ate) => query.range(de, ate))
 
     if (!error && data) setTransacoes(data as unknown as TransacaoResumo[])
     setCarregando(false)
