@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
+import { buscarTudo } from '@/lib/buscarTudo'
 import { moeda } from '@/lib/formato'
 import { IconeCartao, IconeLixeira, IconeMais } from '@/components/Icones'
 import {
@@ -68,7 +69,14 @@ export default function CartoesPage() {
       await Promise.all([
         supabase.from('cartoes_credito').select('*').order('nome'),
         supabase.from('contas').select('id, nome').order('nome'),
-        supabase.from('transacoes').select('cartao_id, valor, tipo').eq('status', 'pago'),
+        buscarTudo((de, ate) =>
+          supabase
+            .from('transacoes')
+            .select('cartao_id, valor, tipo')
+            .eq('status', 'pago')
+            .order('id')
+            .range(de, ate)
+        ),
         userId
           ? supabase.from('perfis').select('papel').eq('id', userId).single()
           : Promise.resolve({ data: null }),

@@ -2,6 +2,23 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { decodificarQrDeImagem, parsearPaginaNfce, validarUrlNfce } from '@/lib/parseNfce'
 
+/**
+ * Teto de tamanho do arquivo. Serve para dar uma mensagem clara em vez de o
+ * pedido morrer no meio: a Vercel corta o corpo de uma function em ~4,5 MB,
+ * então acima disso nem chegaríamos aqui — o cliente reduz a foto antes de
+ * enviar (lib/reduzirImagem.ts) justamente por causa disso.
+ */
+const TAMANHO_MAXIMO = 10 * 1024 * 1024
+
+function respostaTamanho(tamanho: number) {
+  const mb = (tamanho / 1024 / 1024).toFixed(1)
+  const teto = TAMANHO_MAXIMO / 1024 / 1024
+  return NextResponse.json(
+    { error: `Esta imagem é grande demais (${mb} MB). O limite é ${teto} MB.` },
+    { status: 413 }
+  )
+}
+
 export async function POST(request: NextRequest) {
   const token = request.headers.get('authorization')?.replace('Bearer ', '')
   if (!token) {
@@ -21,6 +38,9 @@ export async function POST(request: NextRequest) {
   const arquivo = formData.get('arquivo')
   if (!(arquivo instanceof File)) {
     return NextResponse.json({ error: 'Imagem não enviada.' }, { status: 400 })
+  }
+  if (arquivo.size > TAMANHO_MAXIMO) {
+    return respostaTamanho(arquivo.size)
   }
 
   let urlQr: string | null

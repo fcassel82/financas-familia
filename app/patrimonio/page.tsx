@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts'
 import { supabase } from '@/lib/supabaseClient'
+import { buscarTudo } from '@/lib/buscarTudo'
 import { moeda } from '@/lib/formato'
 import { avaliarImovel, calcularDepreciacao, type BemParaDepreciar } from '@/lib/calculos'
 import { CabecalhoPagina, Pagina } from '@/components/ui'
@@ -104,7 +105,14 @@ export default function PatrimonioPage() {
       { data: dividasData },
     ] = await Promise.all([
       supabase.from('contas').select('id, nome, tipo, saldo_inicial').order('nome'),
-      supabase.from('transacoes').select('conta_id, valor, tipo').eq('status', 'pago'),
+      buscarTudo((de, ate) =>
+          supabase
+            .from('transacoes')
+            .select('conta_id, valor, tipo')
+            .eq('status', 'pago')
+            .order('id')
+            .range(de, ate)
+        ),
       supabase
         .from('transacoes')
         .select('valor, tipo, fatura_cartao_id')

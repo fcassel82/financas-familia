@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabaseClient'
+import { buscarTudo } from '@/lib/buscarTudo'
 import {
   chaveMes,
   dataBR,
@@ -27,6 +28,7 @@ import {
 } from '@/components/ui'
 
 type Transacao = {
+  neutro: boolean
   id: string
   data: string
   descricao: string
@@ -144,7 +146,7 @@ export default function TransacoesPage() {
     let query = supabase
       .from('transacoes')
       .select(
-        'id, data, descricao, valor, tipo, escopo, dono_id, categoria_id, subcategoria_id, conta_id, cartao_id, categorias(nome), subcategorias(nome), contas(nome, cor), cartoes_credito!cartao_id(nome, cor)'
+        'id, data, descricao, valor, tipo, escopo, neutro, dono_id, categoria_id, subcategoria_id, conta_id, cartao_id, categorias(nome), subcategorias(nome), contas(nome, cor), cartoes_credito!cartao_id(nome, cor)'
       )
 
     // "Todos" junta familiar + meus pessoais; as duas abas isoladas filtram por escopo
@@ -167,7 +169,7 @@ export default function TransacoesPage() {
     if (contaFiltro) query = query.eq('conta_id', contaFiltro)
     if (isAdmin && membroFiltro) query = query.eq('dono_id', membroFiltro)
 
-    const { data, error } = await query
+    const { data, error } = await buscarTudo((de, ate) => query.range(de, ate))
 
     if (!error && data) setTransacoes(data as unknown as Transacao[])
     setCarregando(false)
@@ -208,8 +210,11 @@ export default function TransacoesPage() {
   const temFiltro =
     !!busca || !!categoriaFiltro || !!subcategoriaFiltro || !!contaFiltro || !!membroFiltro
 
-  const receitas = visiveis.filter((t) => t.tipo === 'receita').reduce((s, t) => s + Number(t.valor), 0)
-  const despesas = visiveis.filter((t) => t.tipo === 'despesa').reduce((s, t) => s + Number(t.valor), 0)
+  // Os neutros aparecem na lista — para poderem ser vistos e editados — mas
+  // ficam fora dos totais: eles entram no saldo da conta, não no resultado.
+  const contaveis = visiveis.filter((t) => !t.neutro)
+  const receitas = contaveis.filter((t) => t.tipo === 'receita').reduce((s, t) => s + Number(t.valor), 0)
+  const despesas = contaveis.filter((t) => t.tipo === 'despesa').reduce((s, t) => s + Number(t.valor), 0)
   const saldo = receitas - despesas
 
   // Agrupa por dia para exibição
@@ -726,7 +731,17 @@ export default function TransacoesPage() {
                           style={{ backgroundColor: cor ?? 'var(--borda)' }}
                         />
                         <div className="min-w-0">
-                          <p className="truncate text-sm font-medium text-texto">{t.descricao}</p>
+                          <p className="truncate text-sm font-medium text-texto">
+                            {t.descricao}
+                            {t.neutro && (
+                              <span
+                                className="ml-2 rounded-full border border-borda px-1.5 py-0.5 align-middle text-[10px] font-medium uppercase tracking-wide text-texto-suave"
+                                title="Entra no saldo da conta, mas não conta como receita nem despesa"
+                              >
+                                neutro
+                              </span>
+                            )}
+                          </p>
                           <p className="truncate text-xs text-texto-suave">
                             {t.categorias?.nome ?? 'Sem categoria'}
                             {t.subcategorias?.nome ? ` / ${t.subcategorias.nome}` : ''}

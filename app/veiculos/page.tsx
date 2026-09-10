@@ -678,11 +678,13 @@ export default function VeiculosPage() {
   const comConsumo = useMemo(() => calcularConsumo(abastecimentos), [abastecimentos])
 
   const resumo = useMemo(() => {
+    // Média ponderada: soma dos km medidos dividida pela soma dos litros que os
+    // rodaram. A média simples dos km/l de cada trecho daria peso igual a um
+    // trecho de 100 km e a outro de 1.000 km, distorcendo o número.
     const comMedia = comConsumo.filter((a) => a.consumo !== null)
-    const mediaConsumo =
-      comMedia.length > 0
-        ? comMedia.reduce((s, a) => s + (a.consumo ?? 0), 0) / comMedia.length
-        : null
+    const kmMedidos = comMedia.reduce((s, a) => s + (a.kmRodados ?? 0), 0)
+    const litrosMedidos = comMedia.reduce((s, a) => s + (a.litrosConsumidos ?? 0), 0)
+    const mediaConsumo = litrosMedidos > 0 ? kmMedidos / litrosMedidos : null
 
     const gastoCombustivel = abastecimentos.reduce((s, a) => s + Number(a.valor_total), 0)
     const gastoManutencao = manutencoes.reduce((s, m) => s + Number(m.custo), 0)

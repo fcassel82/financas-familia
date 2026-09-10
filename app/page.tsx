@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
+import { buscarTudo } from '@/lib/buscarTudo'
 import {
   chaveMes,
   dataBR,
@@ -75,7 +76,14 @@ export default function InicioPage() {
         { data: pendencias },
       ] = await Promise.all([
           supabase.from('contas').select('id, nome, cor, saldo_inicial, tipo').order('nome'),
-          supabase.from('transacoes').select('conta_id, valor, tipo').eq('status', 'pago'),
+          buscarTudo((de, ate) =>
+          supabase
+            .from('transacoes')
+            .select('conta_id, valor, tipo')
+            .eq('status', 'pago')
+            .order('id')
+            .range(de, ate)
+        ),
           supabase
             .from('transacoes')
             .select('id, data, descricao, valor, tipo, categorias(nome), contas(nome, cor)')
@@ -84,6 +92,9 @@ export default function InicioPage() {
             // O pagamento agregado de uma fatura de cartão é a mesma despesa das
             // compras já lançadas individualmente — contar as duas dobra o gasto
             .is('fatura_cartao_id', null)
+            // Lançamento neutro (ex: adiantamento salarial já recebido fora do sistema)
+            // existe só pro saldo bater, não é receita/despesa real
+            .eq('neutro', false)
             .gte('data', inicio)
             .lte('data', fim)
             .order('data', { ascending: false }),

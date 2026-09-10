@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Papa from 'papaparse'
 import { supabase } from '@/lib/supabaseClient'
+import { buscarTudo } from '@/lib/buscarTudo'
 import {
   chaveMes,
   dataBR,
@@ -221,11 +222,15 @@ export default function FaturasPage() {
     }
 
     const [{ data: comprasData }, { data: pendenciasData }] = await Promise.all([
-      supabase
-        .from('transacoes')
-        .select('id, data, descricao, valor, tipo, cartao_id, parcela_numero, parcela_total')
-        .eq('status', 'pago')
-        .not('cartao_id', 'is', null),
+      buscarTudo((de, ate) =>
+        supabase
+          .from('transacoes')
+          .select('id, data, descricao, valor, tipo, cartao_id, parcela_numero, parcela_total')
+          .eq('status', 'pago')
+          .not('cartao_id', 'is', null)
+          .order('id')
+          .range(de, ate)
+      ),
       supabase
         .from('transacoes')
         .select('id, fatura_cartao_id, fatura_competencia, valor, status, data, data_vencimento, conta_id')

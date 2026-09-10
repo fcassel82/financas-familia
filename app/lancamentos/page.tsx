@@ -34,6 +34,7 @@ type RegistroBase = {
   escopo: string
   conta_id: string | null
   cartao_id: string | null
+  neutro: boolean
 }
 
 /**
@@ -83,6 +84,7 @@ function FormularioLancamento() {
   const [contaId, setContaId] = useState('')
   const [cartaoId, setCartaoId] = useState('')
   const [escopo, setEscopo] = useState('pessoal')
+  const [neutro, setNeutro] = useState(false)
   const [parcelar, setParcelar] = useState(false)
   const [parcelas, setParcelas] = useState('2')
   const [parcelaExistente, setParcelaExistente] = useState<{ numero: number; total: number } | null>(
@@ -118,7 +120,7 @@ function FormularioLancamento() {
       const { data: t, error } = await supabase
         .from('transacoes')
         .select(
-          'data, descricao, categoria_id, subcategoria_id, valor, tipo, escopo, conta_id, cartao_id, parcela_numero, parcela_total'
+          'data, descricao, categoria_id, subcategoria_id, valor, tipo, escopo, conta_id, cartao_id, parcela_numero, parcela_total, neutro'
         )
         .eq('id', idEdicao)
         .single()
@@ -131,6 +133,7 @@ function FormularioLancamento() {
         setValor(String(t.valor))
         setTipo(t.tipo)
         setEscopo(t.escopo)
+        setNeutro(t.neutro ?? false)
         setContaId(t.conta_id ?? '')
         setCartaoId(t.cartao_id ?? '')
         setPagoCom(t.cartao_id ? 'cartao' : 'conta')
@@ -166,6 +169,7 @@ function FormularioLancamento() {
       escopo,
       conta_id: pagoCom === 'conta' ? contaId || null : null,
       cartao_id: pagoCom === 'cartao' ? cartaoId || null : null,
+      neutro,
     }
   }
 
@@ -466,6 +470,31 @@ function FormularioLancamento() {
             <option value="pessoal">Pessoal (só eu vejo)</option>
           </select>
         </Campo>
+
+        {/*
+          Lançamento neutro: entra no saldo da conta mas não conta como receita
+          nem despesa. Serve para dinheiro que só transita — o caso real é o
+          adiantamento quinzenal, que o banco credita no dia 15 e a folha do fim
+          do mês já desconta; sem o par neutro, ou o saldo não bate ou o salário
+          é contado duas vezes.
+        */}
+        <div className="rounded-lg border border-borda p-3">
+          <label className="flex items-start gap-2 text-sm text-texto">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={neutro}
+              onChange={(e) => setNeutro(e.target.checked)}
+            />
+            <span>
+              Lançamento neutro
+              <span className="mt-0.5 block text-xs text-texto-suave">
+                Entra no saldo da conta, mas não conta como receita nem despesa nos
+                relatórios. Use para dinheiro que só transita.
+              </span>
+            </span>
+          </label>
+        </div>
 
         {/* Parcelamento só existe pra cartão de crédito */}
         {pagoCom === 'cartao' &&

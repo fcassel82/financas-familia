@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabaseClient'
+import { buscarTudo } from '@/lib/buscarTudo'
 import { dataBR, diasAte, hojeISO, moeda, somarDias } from '@/lib/formato'
 import { IconeAlerta } from '@/components/Icones'
 import { CabecalhoPagina, Campo, InputMoeda, Pagina, classeInput } from '@/components/ui'
@@ -23,7 +24,14 @@ export default function PrevisaoPage() {
     async function carregar() {
       const [{ data: contas }, { data: movimentos }, { data: pend }] = await Promise.all([
         supabase.from('contas').select('id, saldo_inicial'),
-        supabase.from('transacoes').select('conta_id, valor, tipo').eq('status', 'pago'),
+        buscarTudo((de, ate) =>
+          supabase
+            .from('transacoes')
+            .select('conta_id, valor, tipo')
+            .eq('status', 'pago')
+            .order('id')
+            .range(de, ate)
+        ),
         supabase
           .from('transacoes')
           .select('valor, tipo, data_vencimento, descricao')

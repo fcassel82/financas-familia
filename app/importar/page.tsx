@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import Papa from 'papaparse'
 import readXlsxFile from 'read-excel-file/browser'
 import { supabase } from '@/lib/supabaseClient'
+import { reduzirImagem } from '@/lib/reduzirImagem'
 import { dataBR, hojeISO, moeda } from '@/lib/formato'
 import { parseData, parseValor } from '@/lib/parseExtrato'
 import { decodificarOfx, parsearOfx, type LancamentoOfx } from '@/lib/parseOfx'
@@ -220,8 +221,12 @@ export default function ImportarPage() {
       const { data: sessionData } = await supabase.auth.getSession()
       const token = sessionData.session?.access_token
 
+      // Reduz antes de subir: foto de celular passa do limite de corpo da
+      // Vercel, e o servidor já trabalha com a imagem reduzida de qualquer jeito
+      const paraEnviar = await reduzirImagem(arquivo)
+
       const corpo = new FormData()
-      corpo.append('arquivo', arquivo)
+      corpo.append('arquivo', paraEnviar)
 
       const resposta = await fetch('/api/importar-nfce', {
         method: 'POST',

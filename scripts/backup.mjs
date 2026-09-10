@@ -9,51 +9,17 @@
  * O arquivo é salvo em ~/Documents/Finanças/backups/.
  */
 
-import { readFileSync, writeFileSync, mkdirSync } from 'fs'
+import { writeFileSync, mkdirSync } from 'fs'
 import { homedir } from 'os'
-import { join, dirname } from 'path'
-import { fileURLToPath } from 'url'
-import { createInterface } from 'readline/promises'
+import { join } from 'path'
+import { lerEnvLocal, entrar } from './_supabase.mjs'
 
-const raizProjeto = join(dirname(fileURLToPath(import.meta.url)), '..')
+const api = await entrar(lerEnvLocal())
 
-function lerEnvLocal() {
-  const conteudo = readFileSync(join(raizProjeto, '.env.local'), 'utf8')
-  const env = {}
-  for (const linha of conteudo.split('\n')) {
-    const [chave, ...resto] = linha.split('=')
-    if (chave && resto.length) env[chave.trim()] = resto.join('=').trim()
-  }
-  return env
-}
-
-const env = lerEnvLocal()
-const url = env.NEXT_PUBLIC_SUPABASE_URL
-const anonKey = env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-
-if (!url || !anonKey) {
-  console.error('Erro: NEXT_PUBLIC_SUPABASE_URL / ANON_KEY não encontrados em .env.local')
-  process.exit(1)
-}
-
-const rl = createInterface({ input: process.stdin, output: process.stdout })
-const email = await rl.question('E-mail: ')
-const senha = await rl.question('Senha: ')
-rl.close()
-
-const respLogin = await fetch(`${url}/auth/v1/token?grant_type=password`, {
-  method: 'POST',
-  headers: { apikey: anonKey, 'Content-Type': 'application/json' },
-  body: JSON.stringify({ email, password: senha }),
-})
-
-if (!respLogin.ok) {
-  console.error('Erro ao autenticar. Confira e-mail e senha.')
-  process.exit(1)
-}
-
-const { access_token: token } = await respLogin.json()
-
+/**
+ * Todas as tabelas de `public`. Se você criar uma tabela nova, acrescente aqui
+ * — nada avisa sozinho, e a falta passa despercebida até a hora de restaurar.
+ */
 const tabelas = [
   'perfis',
   'categorias',
@@ -68,28 +34,49 @@ const tabelas = [
   'abastecimentos',
   'manutencoes',
   'trocas_gas',
+  'imoveis',
+  'dividas',
 ]
+
 const backup = { gerado_em: new Date().toISOString(), tabelas: {} }
+const falhas = []
 
 for (const tabela of tabelas) {
-  const resp = await fetch(`${url}/rest/v1/${tabela}?select=*`, {
-    headers: { apikey: anonKey, Authorization: `Bearer ${token}` },
-  })
-  if (!resp.ok) {
-    console.warn(`Aviso: não foi possível ler "${tabela}" (${resp.status}) — pulando.`)
+  try {
+    const dados = await api.lerTabelaInteira(tabela)
+    backup.tabelas[tabela] = dados
+    console.log(`${tabela}: ${dados.length} registros`)
+  } catch (err) {
+    console.warn(`Aviso: não foi possível ler "${tabela}" (${err.message}).`)
     backup.tabelas[tabela] = null
-    continue
+    falhas.push(tabela)
   }
-  const dados = await resp.json()
-  backup.tabelas[tabela] = dados
-  console.log(`${tabela}: ${dados.length} registros`)
 }
+
+backup.completo = falhas.length === 0
+backup.tabelas_que_falharam = falhas
 
 const pastaBackup = join(homedir(), 'Documents', 'Finanças', 'backups')
 mkdirSync(pastaBackup, { recursive: true })
 
 const carimbo = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')
-const destino = join(pastaBackup, `backup-financas-${carimbo}.json`)
+// O sufixo no nome é de propósito: um backup furado não pode parecer bom na
+// hora do aperto, quando ninguém vai abrir o JSON para conferir.
+const sufixo = falhas.length > 0 ? '-INCOMPLETO' : ''
+const destino = join(pastaBackup, `backup-financas-${carimbo}${sufixo}.json`)
 writeFileSync(destino, JSON.stringify(backup, null, 2), 'utf8')
 
+const total = Object.values(backup.tabelas).reduce((s, t) => s + (t?.length ?? 0), 0)
 console.log(`\nBackup salvo em:\n${destino}`)
+console.log(`${tabelas.length - falhas.length}/${tabelas.length} tabelas, ${total} registros no total.`)
+
+if (falhas.length > 0) {
+  console.error(`\nERRO: ${falhas.length} tabela(s) não entraram: ${falhas.join(', ')}`)
+  console.error('Este backup está INCOMPLETO — não confie nele para restaurar.')
+  process.exit(1)
+}
+
+console.log(
+  '\nLembre-se: o backup contém apenas o que o usuário logado enxerga.' +
+    '\nRode sempre com a conta admin para não salvar uma visão parcial.'
+)

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
+import { buscarTudo } from '@/lib/buscarTudo'
 import { moeda } from '@/lib/formato'
 import { IconeBanco, IconeLixeira, IconeMais } from '@/components/Icones'
 import {
@@ -69,7 +70,14 @@ export default function ContasPage() {
 
     const [{ data: contasData }, { data: movimentos }, { data: perfil }] = await Promise.all([
       supabase.from('contas').select('*').order('nome'),
-      supabase.from('transacoes').select('conta_id, valor, tipo').eq('status', 'pago'),
+      buscarTudo((de, ate) =>
+          supabase
+            .from('transacoes')
+            .select('conta_id, valor, tipo')
+            .eq('status', 'pago')
+            .order('id')
+            .range(de, ate)
+        ),
       userId
         ? supabase.from('perfis').select('papel').eq('id', userId).single()
         : Promise.resolve({ data: null }),

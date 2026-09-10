@@ -70,21 +70,30 @@ export type AbastecimentoParaCalculo = {
 }
 
 export type ComConsumo = {
-  /** km rodados desde o abastecimento anterior */
+  /** km rodados desde o último tanque cheio (é o trecho que o consumo mede) */
   kmRodados: number | null
   /** km por litro no trecho; só é confiável entre dois tanques cheios */
   consumo: number | null
+  /**
+   * Litros que abasteceram o trecho medido — soma dos parciais no meio mais
+   * este abastecimento. Só preenchido quando há consumo, e serve para a tela
+   * calcular a média geral como (soma de km) / (soma de litros).
+   */
+  litrosConsumidos: number | null
   precoLitro: number
 }
 
 /**
  * Calcula o consumo entre abastecimentos.
  *
- * O método usado é o "tanque cheio a tanque cheio": os litros de um
- * abastecimento completo são exatamente o que foi gasto para rodar desde o
- * abastecimento cheio anterior. Por isso o consumo só aparece quando ambos os
- * abastecimentos encheram o tanque — completar pela metade não permite saber
- * quanto de fato foi consumido.
+ * O método usado é o "tanque cheio a tanque cheio": entre dois tanques cheios,
+ * tudo o que foi abastecido no meio é exatamente o que o carro queimou no
+ * trecho. Por isso o consumo só aparece quando ambas as pontas encheram o
+ * tanque — completar pela metade não fecha a conta.
+ *
+ * Os abastecimentos parciais no meio do trecho **contam nos litros**: ignorá-los
+ * faz o km/l disparar para valores impossíveis (o KA chegou a mostrar 80 km/l
+ * num trecho com 3 parciais no meio).
  */
 export function calcularConsumo<T extends AbastecimentoParaCalculo>(
   abastecimentos: T[]
@@ -96,26 +105,38 @@ export function calcularConsumo<T extends AbastecimentoParaCalculo>(
 
   const resultado: (T & ComConsumo)[] = []
   let ultimoCheio: T | null = null
+  let litrosDesdeUltimoCheio = 0
 
   for (const a of ordenados) {
     const odometro = Number(a.odometro)
     const litros = Number(a.litros)
     const precoLitro = litros > 0 ? Number(a.valor_total) / litros : 0
 
+    // Este abastecimento também repõe o que foi queimado no trecho que termina
+    // aqui, então entra na soma antes de dividir.
+    litrosDesdeUltimoCheio += litros
+
     let kmRodados: number | null = null
     let consumo: number | null = null
+    let litrosConsumidos: number | null = null
 
     if (ultimoCheio) {
       const distancia = odometro - Number(ultimoCheio.odometro)
       if (distancia > 0) {
         kmRodados = distancia
-        if (a.tanque_cheio) consumo = distancia / litros
+        if (a.tanque_cheio && litrosDesdeUltimoCheio > 0) {
+          consumo = distancia / litrosDesdeUltimoCheio
+          litrosConsumidos = litrosDesdeUltimoCheio
+        }
       }
     }
 
-    resultado.push({ ...a, kmRodados, consumo, precoLitro })
+    resultado.push({ ...a, kmRodados, consumo, litrosConsumidos, precoLitro })
 
-    if (a.tanque_cheio) ultimoCheio = a
+    if (a.tanque_cheio) {
+      ultimoCheio = a
+      litrosDesdeUltimoCheio = 0
+    }
   }
 
   // Devolve do mais recente para o mais antigo, que é como a tela lista
