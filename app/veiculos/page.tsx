@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import { dataBR, diasAte, hojeISO, moeda } from '@/lib/formato'
 import { calcularConsumo, type AbastecimentoParaCalculo } from '@/lib/calculos'
-import { IconeAlerta, IconeCarro, IconeLixeira, IconeMais } from '@/components/Icones'
+import { IconeAlerta, IconeCarro, IconeLapis, IconeLixeira, IconeMais } from '@/components/Icones'
 import {
   BotaoPrimario,
   BotaoSecundario,
@@ -517,8 +517,10 @@ export default function VeiculosPage() {
   const [formVeiculo, setFormVeiculo] = useState(FORM_VEICULO)
   const [modalAbastecimento, setModalAbastecimento] = useState(false)
   const [formAbastecimento, setFormAbastecimento] = useState(FORM_ABASTECIMENTO)
+  const [editandoAbastecimento, setEditandoAbastecimento] = useState<string | null>(null)
   const [modalManutencao, setModalManutencao] = useState(false)
   const [formManutencao, setFormManutencao] = useState(FORM_MANUTENCAO)
+  const [editandoManutencao, setEditandoManutencao] = useState<string | null>(null)
   const [salvando, setSalvando] = useState(false)
 
   const [categorias, setCategorias] = useState<Categoria[]>([])
@@ -759,6 +761,72 @@ export default function VeiculosPage() {
     if (!editandoVeiculo && data) setVeiculoId(data.id)
   }
 
+  /**
+   * Abrir e fechar num só lugar, porque abrir sem limpar `editando` faria o
+   * "Novo abastecimento" sobrescrever silenciosamente o registro editado antes.
+   */
+  function abrirNovoAbastecimento() {
+    setMensagem('')
+    setEditandoAbastecimento(null)
+    setFormAbastecimento({
+      ...FORM_ABASTECIMENTO,
+      odometro: resumo.odometroAtual ? String(resumo.odometroAtual) : '',
+    })
+    setModalAbastecimento(true)
+  }
+
+  function abrirEdicaoAbastecimento(a: Abastecimento) {
+    setMensagem('')
+    setEditandoAbastecimento(a.id)
+    setFormAbastecimento({
+      data: a.data,
+      odometro: String(a.odometro ?? ''),
+      litros: String(a.litros ?? ''),
+      valor_total: String(a.valor_total ?? ''),
+      tanque_cheio: a.tanque_cheio,
+      posto: a.posto ?? '',
+    })
+    setModalAbastecimento(true)
+  }
+
+  function fecharModalAbastecimento() {
+    setModalAbastecimento(false)
+    setEditandoAbastecimento(null)
+    setFormAbastecimento(FORM_ABASTECIMENTO)
+  }
+
+  function abrirNovaManutencao() {
+    setMensagem('')
+    setEditandoManutencao(null)
+    setFormManutencao({
+      ...FORM_MANUTENCAO,
+      odometro: resumo.odometroAtual ? String(resumo.odometroAtual) : '',
+    })
+    setModalManutencao(true)
+  }
+
+  function abrirEdicaoManutencao(m: Manutencao) {
+    setMensagem('')
+    setEditandoManutencao(m.id)
+    setFormManutencao({
+      data: m.data,
+      odometro: m.odometro != null ? String(m.odometro) : '',
+      tipo: m.tipo,
+      descricao: m.descricao ?? '',
+      custo: String(m.custo ?? ''),
+      oficina: m.oficina ?? '',
+      proxima_data: m.proxima_data ?? '',
+      proximo_odometro: m.proximo_odometro != null ? String(m.proximo_odometro) : '',
+    })
+    setModalManutencao(true)
+  }
+
+  function fecharModalManutencao() {
+    setModalManutencao(false)
+    setEditandoManutencao(null)
+    setFormManutencao(FORM_MANUTENCAO)
+  }
+
   async function salvarAbastecimento(e: React.FormEvent) {
     e.preventDefault()
     setSalvando(true)
@@ -778,6 +846,24 @@ export default function VeiculosPage() {
       dono_id: userId,
     }
 
+    if (editandoAbastecimento) {
+      const { error: erroEdicao } = await supabase
+        .from('abastecimentos')
+        .update(registro)
+        .eq('id', editandoAbastecimento)
+
+      setSalvando(false)
+      if (erroEdicao) {
+        setMensagem('Erro ao salvar: ' + erroEdicao.message)
+        return
+      }
+      fecharModalAbastecimento()
+      carregar()
+      // Não pergunta de lançamento na edição: se já houver um vinculado, ele
+      // continua como está; criar outro aqui duplicaria a despesa.
+      return
+    }
+
     const { data: inserido, error } = await supabase
       .from('abastecimentos')
       .insert(registro)
@@ -789,8 +875,7 @@ export default function VeiculosPage() {
       setMensagem('Erro ao salvar: ' + error.message)
       return
     }
-    setModalAbastecimento(false)
-    setFormAbastecimento(FORM_ABASTECIMENTO)
+    fecharModalAbastecimento()
     carregar()
 
     // Pergunta se o valor pago deve virar um lançamento, com as mesmas
@@ -875,7 +960,7 @@ export default function VeiculosPage() {
     const { data: userData } = await supabase.auth.getUser()
     const userId = userData.user?.id
 
-    const { error } = await supabase.from('manutencoes').insert({
+    const registroManutencao = {
       veiculo_id: veiculoId,
       data: formManutencao.data,
       odometro: formManutencao.odometro ? parseFloat(formManutencao.odometro) : null,
@@ -888,15 +973,18 @@ export default function VeiculosPage() {
         ? parseFloat(formManutencao.proximo_odometro)
         : null,
       dono_id: userId,
-    })
+    }
+
+    const { error } = editandoManutencao
+      ? await supabase.from('manutencoes').update(registroManutencao).eq('id', editandoManutencao)
+      : await supabase.from('manutencoes').insert(registroManutencao)
 
     setSalvando(false)
     if (error) {
       setMensagem('Erro ao salvar: ' + error.message)
       return
     }
-    setModalManutencao(false)
-    setFormManutencao(FORM_MANUTENCAO)
+    fecharModalManutencao()
     carregar()
   }
 
@@ -1501,22 +1589,7 @@ export default function VeiculosPage() {
               </button>
             </div>
             <BotaoPrimario
-              onClick={() => {
-                setMensagem('')
-                if (aba === 'combustivel') {
-                  setFormAbastecimento({
-                    ...FORM_ABASTECIMENTO,
-                    odometro: resumo.odometroAtual ? String(resumo.odometroAtual) : '',
-                  })
-                  setModalAbastecimento(true)
-                } else {
-                  setFormManutencao({
-                    ...FORM_MANUTENCAO,
-                    odometro: resumo.odometroAtual ? String(resumo.odometroAtual) : '',
-                  })
-                  setModalManutencao(true)
-                }
-              }}
+              onClick={() => (aba === 'combustivel' ? abrirNovoAbastecimento() : abrirNovaManutencao())}
             >
               <IconeMais className="h-4 w-4" />
               {aba === 'combustivel' ? 'Abastecimento' : 'Manutenção'}
@@ -1588,6 +1661,13 @@ export default function VeiculosPage() {
                         </td>
                         <td className="p-3 text-right">
                           <button
+                            onClick={() => abrirEdicaoAbastecimento(a)}
+                            aria-label="Editar abastecimento"
+                            className="rounded p-1.5 text-texto-suave transition-colors hover:bg-fundo hover:text-primaria"
+                          >
+                            <IconeLapis className="h-4 w-4" />
+                          </button>
+                          <button
                             onClick={() => apagarAbastecimento(a)}
                             aria-label="Apagar abastecimento"
                             className="rounded p-1.5 text-texto-suave transition-colors hover:bg-despesa/10 hover:text-despesa"
@@ -1641,6 +1721,13 @@ export default function VeiculosPage() {
                       {moeda(m.custo)}
                     </span>
                     <button
+                      onClick={() => abrirEdicaoManutencao(m)}
+                      aria-label="Editar manutenção"
+                      className="rounded p-1.5 text-texto-suave transition-colors hover:bg-fundo hover:text-primaria"
+                    >
+                      <IconeLapis className="h-4 w-4" />
+                    </button>
+                    <button
                       onClick={() => apagarManutencao(m.id)}
                       aria-label="Apagar manutenção"
                       className="rounded p-1.5 text-texto-suave transition-colors hover:bg-despesa/10 hover:text-despesa"
@@ -1668,8 +1755,8 @@ export default function VeiculosPage() {
       {/* Modal: abastecimento */}
       <Modal
         aberto={modalAbastecimento}
-        titulo="Novo abastecimento"
-        onFechar={() => setModalAbastecimento(false)}
+        titulo={editandoAbastecimento ? 'Editar abastecimento' : 'Novo abastecimento'}
+        onFechar={fecharModalAbastecimento}
       >
         <form onSubmit={salvarAbastecimento} className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">
@@ -1909,8 +1996,8 @@ export default function VeiculosPage() {
       {/* Modal: manutenção */}
       <Modal
         aberto={modalManutencao}
-        titulo="Nova manutenção"
-        onFechar={() => setModalManutencao(false)}
+        titulo={editandoManutencao ? 'Editar manutenção' : 'Nova manutenção'}
+        onFechar={fecharModalManutencao}
       >
         <form onSubmit={salvarManutencao} className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">
