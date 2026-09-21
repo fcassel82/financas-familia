@@ -6,10 +6,10 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
 import { buscarTudo } from '@/lib/buscarTudo'
 import {
-  chaveMes,
+  chaveCompetencia,
   dataBR,
   hojeISO,
-  limitesDoMes,
+  limitesCompetencia,
   moeda,
   rotuloMesLongo,
   situacaoVencimento,
@@ -49,7 +49,7 @@ export default function InicioPage() {
   const [lembretes, setLembretes] = useState<Pendencia[]>([])
 
   const hoje = hojeISO()
-  const mesAtual = chaveMes(new Date())
+  const mesAtual = chaveCompetencia(hoje)
 
   useEffect(() => {
     async function carregar() {
@@ -66,7 +66,7 @@ export default function InicioPage() {
         .single()
       setNome(perfil?.nome ?? '')
 
-      const { inicio, fim } = limitesDoMes(mesAtual)
+      const { inicio, fim } = limitesCompetencia(mesAtual)
       const limiteLembrete = somarDias(hojeISO(), 7)
 
       const [

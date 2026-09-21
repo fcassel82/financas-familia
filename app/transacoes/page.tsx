@@ -5,10 +5,11 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabaseClient'
 import { buscarTudo } from '@/lib/buscarTudo'
 import {
-  chaveMes,
+  chaveCompetencia,
   dataBR,
   deslocarMes,
-  limitesDoMes,
+  hojeISO,
+  limitesCompetencia,
   moeda,
   normalizar,
   rotuloMesLongo,
@@ -93,7 +94,7 @@ export default function TransacoesPage() {
   const [isAdmin, setIsAdmin] = useState(false)
   const [userId, setUserId] = useState('')
 
-  const [mes, setMes] = useState(chaveMes(new Date()))
+  const [mes, setMes] = useState(chaveCompetencia(hojeISO()))
   const [busca, setBusca] = useState('')
   const [categoriaFiltro, setCategoriaFiltro] = useState('')
   const [subcategoriaFiltro, setSubcategoriaFiltro] = useState('')
@@ -141,7 +142,7 @@ export default function TransacoesPage() {
   }, [])
 
   const carregar = useCallback(async () => {
-    const { inicio, fim } = limitesDoMes(mes)
+    const { inicio, fim } = limitesCompetencia(mes)
 
     let query = supabase
       .from('transacoes')

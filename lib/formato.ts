@@ -80,6 +80,33 @@ export function chaveMes(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
 }
 
+/**
+ * Mês de competência de uma data: o salário do Frederico cai perto do fim do
+ * mês (geralmente no último dia útil), mas já é o pagamento referente ao mês
+ * SEGUINTE — ex: o depósito de 28/08 é o salário de setembro. A partir do dia
+ * de corte, a data passa a contar para o mês seguinte, alinhando o "mês" com
+ * o ciclo real de pagamento em vez do calendário puro.
+ */
+export function chaveCompetencia(iso: string, diaCorte = 26): string {
+  const [ano, mes, dia] = iso.split('-').map(Number)
+  const d = dia >= diaCorte ? new Date(ano, mes, 1) : new Date(ano, mes - 1, 1)
+  return chaveMes(d)
+}
+
+/**
+ * Primeiro e último dia (ISO) de calendário que caem no mês de COMPETÊNCIA
+ * informado como "2026-06" (ver chaveCompetencia) — ex: competência de
+ * setembro/2026 vai de 26/08 até 25/09.
+ */
+export function limitesCompetencia(chave: string, diaCorte = 26): { inicio: string; fim: string } {
+  const [ano, mes] = chave.split('-').map(Number)
+  const inicio = new Date(ano, mes - 2, diaCorte)
+  const fim = new Date(ano, mes - 1, diaCorte - 1)
+  const fmt = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  return { inicio: fmt(inicio), fim: fmt(fim) }
+}
+
 /** "2026-06" → "jun/26" */
 export function rotuloMesCurto(chave: string): string {
   const [ano, mes] = chave.split('-').map(Number)

@@ -16,7 +16,15 @@ import {
 } from 'recharts'
 import { supabase } from '@/lib/supabaseClient'
 import { buscarTudo } from '@/lib/buscarTudo'
-import { dataBR, hojeISO, moeda, rotuloMesCurto } from '@/lib/formato'
+import {
+  chaveCompetencia,
+  dataBR,
+  deslocarMes,
+  hojeISO,
+  limitesCompetencia,
+  moeda,
+  rotuloMesCurto,
+} from '@/lib/formato'
 import {
   BotaoPrimario,
   BotaoSecundario,
@@ -83,7 +91,12 @@ function chaveDoMes(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
 }
 
-/** Meses (chave "2026-06") cobertos pelo período — usado pra agrupar a Evolução Mensal */
+/**
+ * Meses de COMPETÊNCIA (chave "2026-06") cobertos pelo período — usado pra
+ * agrupar a Evolução Mensal e pra definir o início da busca no banco. O
+ * período "Entre datas" é a exceção: ali o usuário escolheu datas de
+ * calendário exatas, então mantemos calendário puro em vez de competência.
+ */
 function mesesDoPeriodo(periodo: Periodo, dataInicioCustom: string, dataFimCustom: string): string[] {
   if (periodo === 'personalizado') {
     const [anoI, mesI] = dataInicioCustom.split('-').map(Number)
@@ -98,22 +111,19 @@ function mesesDoPeriodo(periodo: Periodo, dataInicioCustom: string, dataFimCusto
     return chaves
   }
 
-  const hoje = new Date()
-  const referencia = new Date(hoje.getFullYear(), hoje.getMonth(), 1)
+  const referencia = chaveCompetencia(hojeISO())
 
   if (periodo === 'ano') {
+    const anoAtual = Number(referencia.slice(0, 4))
+    const mesAtualNum = Number(referencia.slice(5, 7))
     const chaves: string[] = []
-    for (let m = 0; m <= referencia.getMonth(); m++) {
-      chaves.push(chaveDoMes(new Date(referencia.getFullYear(), m, 1)))
-    }
+    for (let m = 1; m <= mesAtualNum; m++) chaves.push(`${anoAtual}-${String(m).padStart(2, '0')}`)
     return chaves
   }
 
   const quantidade = periodo === 'mes' ? 1 : periodo === '3m' ? 3 : 6
   const chaves: string[] = []
-  for (let i = quantidade - 1; i >= 0; i--) {
-    chaves.push(chaveDoMes(new Date(referencia.getFullYear(), referencia.getMonth() - i, 1)))
-  }
+  for (let i = quantidade - 1; i >= 0; i--) chaves.push(deslocarMes(referencia, -i))
   return chaves
 }
 
@@ -310,7 +320,8 @@ export default function DashboardPage() {
   )
 
   const carregar = useCallback(async () => {
-    const dataInicio = periodo === 'personalizado' ? dataInicioCustom : `${mesesChaves[0]}-01`
+    const dataInicio =
+      periodo === 'personalizado' ? dataInicioCustom : limitesCompetencia(mesesChaves[0]).inicio
     const dataFim = periodo === 'personalizado' ? dataFimCustom : hojeISO()
 
     let query = supabase
@@ -443,8 +454,11 @@ export default function DashboardPage() {
 
   const evolucaoMensal = useMemo(() => {
     const porMes = new Map(mesesChaves.map((chave) => [chave, { receitas: 0, despesas: 0 }]))
+    // "Entre datas" é calendário puro (o usuário escolheu as datas); os demais
+    // períodos usam mês de competência (ver chaveCompetencia)
     for (const t of transacoes) {
-      const bucket = porMes.get(t.data.slice(0, 7))
+      const chaveDoLancamento = periodo === 'personalizado' ? t.data.slice(0, 7) : chaveCompetencia(t.data)
+      const bucket = porMes.get(chaveDoLancamento)
       if (!bucket) continue
       if (t.tipo === 'receita') bucket.receitas += Number(t.valor)
       else bucket.despesas += Number(t.valor)
@@ -454,7 +468,7 @@ export default function DashboardPage() {
       Receitas: porMes.get(chave)!.receitas,
       Despesas: porMes.get(chave)!.despesas,
     }))
-  }, [transacoes, mesesChaves])
+  }, [transacoes, mesesChaves, periodo])
 
   const gastosPorCategoria = useMemo(
     () => agruparDespesas(transacoes, (t) => t.categorias?.nome ?? '', 'Sem categoria'),
