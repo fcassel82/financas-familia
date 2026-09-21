@@ -1,5 +1,6 @@
 import { Jimp } from 'jimp'
 import jsQR from 'jsqr'
+import convertHeic from 'heic-convert'
 
 /**
  * Domínios oficiais da SEFAZ que sabemos processar. O QR code de uma nota
@@ -21,6 +22,27 @@ export function validarUrlNfce(url: string): URL | null {
   }
 }
 
+const BRANDS_HEIC = ['heic', 'heix', 'hevc', 'heim', 'heis', 'hevm', 'hevs', 'mif1', 'msf1']
+
+/** Detecta HEIC/HEIF pelo box "ftyp" do próprio arquivo — mais confiável que confiar no nome/MIME enviado pelo navegador */
+function pareceHeic(buffer: Buffer): boolean {
+  if (buffer.length < 12) return false
+  if (buffer.toString('ascii', 4, 8) !== 'ftyp') return false
+  return BRANDS_HEIC.includes(buffer.toString('ascii', 8, 12))
+}
+
+/**
+ * O iPhone tira foto em HEIC por padrão, e o Jimp não sabe ler esse formato
+ * — sem isso, toda foto tirada direto da câmera do celular (em vez de
+ * escolhida de um álbum já convertido) falhava com um erro genérico antes
+ * mesmo de tentar achar o QR Code.
+ */
+async function paraBufferLegivel(buffer: Buffer): Promise<Buffer> {
+  if (!pareceHeic(buffer)) return buffer
+  const jpeg = await convertHeic({ buffer, format: 'JPEG', quality: 0.9 })
+  return Buffer.from(jpeg)
+}
+
 /**
  * Tenta decodificar um QR Code a partir de uma foto de cupom fiscal.
  *
@@ -32,7 +54,7 @@ export function validarUrlNfce(url: string): URL | null {
  * decodifica a imagem original sem esse realce.
  */
 export async function decodificarQrDeImagem(buffer: ArrayBuffer): Promise<string | null> {
-  const lida = await Jimp.read(Buffer.from(buffer))
+  const lida = await Jimp.read(await paraBufferLegivel(Buffer.from(buffer)))
 
   // Fotos de celular vêm em altíssima resolução (12MP+), o que deixa o jsQR
   // muito lento sem necessidade — o QR ainda fica perfeitamente legível bem
