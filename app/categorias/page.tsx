@@ -180,7 +180,7 @@ export default function CategoriasPage() {
   const classeAba = (valor: string) =>
     `rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
       aba === valor
-        ? 'bg-primaria text-white'
+        ? 'bg-primaria text-sobre-cor'
         : 'border border-borda bg-superficie text-texto-suave hover:bg-fundo'
     }`
 
@@ -254,7 +254,7 @@ export default function CategoriasPage() {
                       <button
                         onClick={() => apagarCategoria(categoria)}
                         aria-label={`Apagar ${categoria.nome}`}
-                        className="rounded p-1.5 text-texto-suave transition-colors hover:bg-despesa/10 hover:text-despesa"
+                        className="rounded-lg p-2.5 text-texto-suave transition-colors hover:bg-despesa/10 hover:text-despesa"
                       >
                         <IconeLixeira className="h-4 w-4" />
                       </button>
@@ -281,7 +281,7 @@ export default function CategoriasPage() {
                             <button
                               onClick={() => apagarSub(sub)}
                               aria-label={`Apagar ${sub.nome}`}
-                              className="rounded p-1 text-texto-suave transition-colors hover:bg-despesa/10 hover:text-despesa"
+                              className="rounded-lg p-2.5 text-texto-suave transition-colors hover:bg-despesa/10 hover:text-despesa"
                             >
                               <IconeLixeira className="h-3.5 w-3.5" />
                             </button>

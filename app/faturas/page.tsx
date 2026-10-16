@@ -597,7 +597,7 @@ export default function FaturasPage() {
   return (
     <Pagina>
       <CabecalhoPagina
-        titulo="Faturas de Cartão"
+        titulo="Faturas do cartão"
         descricao="Parcelas em aberto, quando cada fatura vence e o que já está comprometido nos próximos meses."
       />
 
@@ -629,7 +629,7 @@ export default function FaturasPage() {
           acao={
             <a
               href="/cartoes"
-              className="inline-flex items-center gap-2 rounded-lg bg-primaria px-4 py-2.5 text-sm font-semibold text-white hover:bg-primaria-escura"
+              className="inline-flex items-center gap-2 rounded-lg bg-primaria px-4 py-2.5 text-sm font-semibold text-sobre-cor hover:bg-primaria-escura"
             >
               Cadastrar cartão
             </a>

@@ -1,15 +1,12 @@
-import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import type { Metadata, Viewport } from "next";
+import { Figtree } from "next/font/google";
 import "./globals.css";
 import AppShell from "@/components/AppShell";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+// Figtree: boa leitura em tela pequena, zero sem barra e algarismos de largura
+// igual (tabular-nums) para os valores ficarem alinhados
+const figtree = Figtree({
+  variable: "--font-figtree",
   subsets: ["latin"],
 });
 
@@ -18,12 +15,17 @@ export const metadata: Metadata = {
   description: "Gestão financeira familiar",
 };
 
+// Cor da barra do navegador no iPhone acompanha o fundo de cada tema
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f4f6f8" },
+    { media: "(prefers-color-scheme: dark)", color: "#0f1923" },
+  ],
+};
+
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html
-      lang="pt-BR"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
-    >
+    <html lang="pt-BR" className={`${figtree.variable} h-full antialiased`}>
       <body className="min-h-full">
         <AppShell>{children}</AppShell>
       </body>

@@ -255,7 +255,7 @@ export default function CartoesPage() {
                   <button
                     onClick={() => apagar(cartao)}
                     aria-label={`Apagar ${cartao.nome}`}
-                    className="rounded p-1.5 text-white/80 transition-colors hover:bg-white/20 hover:text-white"
+                    className="rounded-lg p-2.5 text-white/80 transition-colors hover:bg-white/20 hover:text-white"
                   >
                     <IconeLixeira className="h-4 w-4" />
                   </button>

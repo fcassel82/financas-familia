@@ -64,12 +64,12 @@ type Escopo = 'todos' | 'familiar' | 'pessoal'
 const CORES_CATEGORICAS = [
   '#2a78d6',
   '#eb6834',
-  '#159d76',
+  '#5b7f1f',
   '#eda100',
   '#e87ba4',
   '#7c4dcc',
   '#0e7490',
-  '#dc4c4c',
+  '#a65e2e',
 ]
 const COR_OUTRAS = '#94a3b8'
 
@@ -77,8 +77,8 @@ const COR_OUTRAS = '#94a3b8'
 // representam "esse lançamento não tem categoria/subcategoria definida"
 const SEM_CATEGORIA_ID = '__sem_categoria__'
 const SEM_SUBCATEGORIA_ID = '__sem_subcategoria__'
-const COR_RECEITA = '#0e9f6e'
-const COR_DESPESA = '#dc4c4c'
+const COR_RECEITA = 'var(--receita)'
+const COR_DESPESA = 'var(--despesa)'
 
 const ROTULO_PERIODO: Record<Exclude<Periodo, 'personalizado'>, string> = {
   mes: 'Este mês',
@@ -174,11 +174,11 @@ function CartaoKpi({
   cor: string
 }) {
   return (
-    <div className="rounded-xl p-3 shadow-sm sm:p-4" style={{ backgroundColor: cor }}>
-      <p className="text-[11px] font-medium uppercase leading-tight tracking-wide text-white/80">
-        {titulo}
+    <div className="cartao p-3 sm:p-4">
+      <p className="text-xs font-medium leading-tight text-texto-suave">{titulo}</p>
+      <p className="mt-1 text-lg font-bold leading-tight sm:text-2xl" style={{ color: cor }}>
+        {valor}
       </p>
-      <p className="mt-1 text-lg font-bold leading-tight text-white sm:text-2xl">{valor}</p>
     </div>
   )
 }
@@ -510,7 +510,7 @@ export default function DashboardPage() {
   const classeBotao = (ativo: boolean) =>
     `shrink-0 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
       ativo
-        ? 'bg-primaria text-white'
+        ? 'bg-primaria text-sobre-cor'
         : 'border border-borda bg-superficie text-texto-suave hover:bg-fundo'
     }`
 
@@ -632,8 +632,8 @@ export default function DashboardPage() {
           <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
             <CartaoKpi titulo="Receitas" valor={moeda(totalReceitas)} cor={COR_RECEITA} />
             <CartaoKpi titulo="Despesas" valor={moeda(totalDespesas)} cor={COR_DESPESA} />
-            <CartaoKpi titulo="Saldo" valor={moeda(saldo)} cor="#1c3a52" />
-            <CartaoKpi titulo="Lançamentos" valor={String(transacoes.length)} cor="#159d76" />
+            <CartaoKpi titulo="Saldo" valor={moeda(saldo)} cor={saldo >= 0 ? 'var(--texto)' : COR_DESPESA} />
+            <CartaoKpi titulo="Lançamentos" valor={String(transacoes.length)} cor="var(--texto)" />
           </div>
 
           {/* Lançamentos do filtro de categoria/subcategoria — pra investigar e corrigir

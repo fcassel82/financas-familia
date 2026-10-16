@@ -315,7 +315,7 @@ export default function DividasPage() {
                   <button
                     onClick={() => apagar(divida)}
                     aria-label={`Apagar ${divida.nome}`}
-                    className="rounded p-1.5 text-texto-suave transition-colors hover:bg-despesa/10 hover:text-despesa"
+                    className="rounded-lg p-2.5 text-texto-suave transition-colors hover:bg-despesa/10 hover:text-despesa"
                   >
                     <IconeLixeira className="h-4 w-4" />
                   </button>

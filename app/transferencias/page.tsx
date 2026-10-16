@@ -203,7 +203,7 @@ export default function TransferenciasPage() {
           acao={
             <a
               href="/contas"
-              className="inline-flex items-center gap-2 rounded-lg bg-primaria px-4 py-2.5 text-sm font-semibold text-white hover:bg-primaria-escura"
+              className="inline-flex items-center gap-2 rounded-lg bg-primaria px-4 py-2.5 text-sm font-semibold text-sobre-cor hover:bg-primaria-escura"
             >
               Cadastrar conta
             </a>
@@ -256,7 +256,7 @@ export default function TransferenciasPage() {
               <button
                 onClick={() => apagar(t)}
                 aria-label="Apagar transferência"
-                className="rounded p-1.5 text-texto-suave transition-colors hover:bg-despesa/10 hover:text-despesa"
+                className="rounded-lg p-2.5 text-texto-suave transition-colors hover:bg-despesa/10 hover:text-despesa"
               >
                 <IconeLixeira className="h-4 w-4" />
               </button>

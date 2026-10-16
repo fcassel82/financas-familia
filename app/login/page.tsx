@@ -30,16 +30,14 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-marinho px-4 py-10">
+    <div className="flex min-h-screen items-center justify-center bg-fundo px-4 py-10">
       <div className="w-full max-w-sm">
         <div className="mb-6 text-center">
-          <h1 className="text-2xl font-semibold text-white">
-            Finanças <span className="text-primaria">da Família</span>
-          </h1>
-          <p className="mt-1 text-sm text-white/60">Entre para acessar suas contas</p>
+          <h1 className="text-3xl font-extrabold tracking-tight text-primaria">Finanças da Família</h1>
+          <p className="mt-2 text-base text-texto-suave">Entre para acessar suas contas</p>
         </div>
 
-        <form onSubmit={handleSubmit} className="rounded-xl bg-superficie p-6 shadow-xl">
+        <form onSubmit={handleSubmit} className="cartao p-6">
           <label className="mb-4 block">
             <span className="mb-1.5 block text-sm font-medium text-texto">E-mail</span>
             <input
@@ -70,7 +68,7 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={carregando}
-            className="w-full rounded-lg bg-primaria py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primaria-escura disabled:opacity-50"
+            className="min-h-12 w-full rounded-lg bg-primaria text-base font-semibold text-sobre-cor transition-colors hover:bg-primaria-escura disabled:opacity-50"
           >
             {carregando ? 'Entrando...' : 'Entrar'}
           </button>

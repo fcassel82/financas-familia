@@ -58,6 +58,23 @@ export function textoVencimento(iso: string): string {
   return `Vence em ${dias} dias`
 }
 
+/** Cabeçalho de dia nas listas: "Hoje", "Ontem", "Segunda-feira, 12 de out." */
+export function rotuloDia(iso: string): string {
+  const dias = diasAte(iso)
+  if (dias === 0) return 'Hoje'
+  if (dias === -1) return 'Ontem'
+  const [ano, mes, dia] = iso.split('-').map(Number)
+  const d = new Date(ano, mes - 1, dia)
+  const texto = d.toLocaleDateString('pt-BR', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'short',
+    // Mostra o ano só quando não é o ano corrente
+    ...(ano !== new Date().getFullYear() ? { year: 'numeric' } : {}),
+  })
+  return texto.charAt(0).toUpperCase() + texto.slice(1)
+}
+
 /** Soma dias a uma data ISO */
 export function somarDias(iso: string, dias: number): string {
   const [ano, mes, dia] = iso.split('-').map(Number)

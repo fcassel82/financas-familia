@@ -277,7 +277,7 @@ export default function PatrimonioPage() {
   return (
     <Pagina>
       <CabecalhoPagina
-        titulo="Investimentos e Patrimônio"
+        titulo="Patrimônio"
         descricao="Quanto você tem, quanto você deve e do que o seu patrimônio é feito."
       />
 
@@ -307,7 +307,7 @@ export default function PatrimonioPage() {
         <>
           {/* Patrimônio líquido em destaque */}
           <div className="mb-4 rounded-xl bg-marinho p-5 shadow-sm">
-            <p className="text-xs uppercase tracking-wide text-white/70">Patrimônio líquido</p>
+            <p className="text-xs text-white/70">Patrimônio líquido</p>
             <p className="mt-1 whitespace-nowrap text-3xl font-bold text-white sm:text-4xl">
               {moeda(numeros.patrimonioLiquido)}
             </p>
@@ -444,7 +444,7 @@ export default function PatrimonioPage() {
 
               {dividas.length > 0 && (
                 <div className="mt-5 border-t border-borda pt-4">
-                  <p className="mb-3 text-xs font-medium uppercase tracking-wide text-texto-suave">
+                  <p className="mb-3 text-xs font-medium text-texto-suave">
                     Financiamentos em aberto
                   </p>
                   <ul className="space-y-2">

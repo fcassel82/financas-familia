@@ -211,3 +211,69 @@ export function IconeDivida({ className = base }: Props) {
     </svg>
   )
 }
+
+export function IconeRelogio({ className = base }: Props) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
+    </svg>
+  )
+}
+
+export function IconeCamadas({ className = base }: Props) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="m12 3 9 5-9 5-9-5 9-5Z" />
+      <path d="m3 13 9 5 9-5" />
+    </svg>
+  )
+}
+
+export function IconeBroto({ className = base }: Props) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 21v-8" />
+      <path d="M12 13c0-4 3-7 8-7 0 4-3 7-8 7Z" />
+      <path d="M12 13c0-3-2-5-6-5 0 3 2 5 6 5Z" />
+    </svg>
+  )
+}
+
+export function IconeTendencia({ className = base }: Props) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="m3 17 6-6 4 4 8-8" />
+      <path d="M15 7h6v6" />
+    </svg>
+  )
+}
+
+export function IconeDocumento({ className = base }: Props) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M6 3h9l4 4v14H6Z" />
+      <path d="M14 3v5h5M9 13h7M9 17h5" />
+    </svg>
+  )
+}
+
+export function IconeTransferir({ className = base }: Props) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 8h15l-4-4" />
+      <path d="M20 16H5l4 4" />
+    </svg>
+  )
+}
+
+export function IconeFatura({ className = base }: Props) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M13 17H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v3" />
+      <path d="M2 9.5h16" />
+      <circle cx="18" cy="17" r="4" />
+      <path d="M18 15.3V17l1.2.8" />
+    </svg>
+  )
+}

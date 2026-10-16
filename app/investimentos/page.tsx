@@ -223,7 +223,7 @@ export default function InvestimentosPage() {
                   <button
                     onClick={() => apagar(inv)}
                     aria-label={`Apagar ${inv.nome}`}
-                    className="rounded p-1.5 text-texto-suave transition-colors hover:bg-despesa/10 hover:text-despesa"
+                    className="rounded-lg p-2.5 text-texto-suave transition-colors hover:bg-despesa/10 hover:text-despesa"
                   >
                     <IconeLixeira className="h-4 w-4" />
                   </button>

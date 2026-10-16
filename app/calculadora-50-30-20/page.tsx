@@ -30,45 +30,25 @@ import {
 } from '@/lib/formato'
 import { IconeSeta } from '@/components/Icones'
 import { CabecalhoPagina, Pagina, SeletorMultiplo } from '@/components/ui'
+import {
+  CAMPOS_TRANSACAO_CALC,
+  COR_GRUPO,
+  METAS,
+  ROTULO_GRUPO,
+  calcular,
+  type Grupo,
+  type Resultado,
+  type Subcategoria,
+  type TransacaoCalc,
+} from '@/lib/regra503020'
 
-type Grupo503020 = 'necessidade' | 'desejo' | 'investimento' | 'deducao'
-type Grupo = 'necessidade' | 'desejo' | 'investimento'
-
-type Subcategoria = { id: string; categoria_id: string; nome: string; grupo_503020: Grupo503020 | null }
 type Membro = { id: string; nome: string }
-
-type TransacaoCalc = {
-  id: string
-  data: string
-  valor: number
-  tipo: 'receita' | 'despesa'
-  escopo: string
-  dono_id: string
-  categoria_id: string | null
-  subcategoria_id: string | null
-  conta_id: string | null
-  transferencia_id: string | null
-  fatura_cartao_id: string | null
-  neutro: boolean
-}
 
 const FAMILIAR = '__familiar__'
 // Janela dos dashboards de tendência/resumo. O gráfico mensal antigo usa 6 meses;
 // buscamos 12 meses do banco pra também alimentar o painel-resumo de 12 meses.
 const MESES_TENDENCIA = 6
 const MESES_RESUMO_LONGO = 12
-
-const METAS: Record<Grupo, number> = {
-  necessidade: 50,
-  desejo: 30,
-  investimento: 20,
-}
-
-const ROTULO_GRUPO: Record<Grupo, string> = {
-  necessidade: 'Essenciais',
-  desejo: 'Qualidade de Vida',
-  investimento: 'Futuro',
-}
 
 const CONCEITO_GRUPO: Record<Grupo, string> = {
   necessidade: 'Sustentar',
@@ -82,13 +62,8 @@ const PERGUNTA_GRUPO: Record<Grupo, string> = {
   investimento: 'Que decisões financeiras de hoje construirão a família que desejamos amanhã?',
 }
 
-const COR_GRUPO: Record<Grupo, string> = {
-  necessidade: '#2a78d6',
-  desejo: '#eda100',
-  investimento: '#159d76',
-}
 const ROTULO_NAO_CLASSIFICADO = 'Não classificado'
-const COR_NAO_CLASSIFICADO = '#94a3b8'
+const COR_NAO_CLASSIFICADO = 'var(--texto-apagado)'
 
 const QUADRO_COMPARATIVO: { grupo: Grupo; tradicional: string }[] = [
   { grupo: 'necessidade', tradicional: 'Necessidades' },
@@ -96,68 +71,10 @@ const QUADRO_COMPARATIVO: { grupo: Grupo; tradicional: string }[] = [
   { grupo: 'investimento', tradicional: 'Investimentos' },
 ]
 
-type Resultado = {
-  rendaBruta: number
-  deducoes: number
-  rendaLiquida: number
-  buckets: Record<Grupo, number>
-  naoClassificado: number
-}
-
 function passaQuem(t: TransacaoCalc, selecionados: string[]): boolean {
   if (selecionados.length === 0) return true
   if (t.escopo === 'familiar') return selecionados.includes(FAMILIAR)
   return selecionados.includes(t.dono_id)
-}
-
-function calcular(
-  transacoes: TransacaoCalc[],
-  subcategoriaMap: Map<string, Subcategoria>,
-  contaTipoMap: Map<string, string>
-): Resultado {
-  let rendaBruta = 0
-  let deducoes = 0
-  let naoClassificado = 0
-  const buckets = { necessidade: 0, desejo: 0, investimento: 0 }
-  const transferencias = new Map<string, TransacaoCalc[]>()
-
-  for (const t of transacoes) {
-    if (t.neutro || t.fatura_cartao_id) continue
-
-    if (t.transferencia_id) {
-      const lista = transferencias.get(t.transferencia_id) ?? []
-      lista.push(t)
-      transferencias.set(t.transferencia_id, lista)
-      continue
-    }
-
-    if (t.tipo === 'receita') {
-      rendaBruta += t.valor
-      continue
-    }
-
-    const sub = t.subcategoria_id ? subcategoriaMap.get(t.subcategoria_id) : null
-    const grupo = sub?.grupo_503020 ?? null
-    if (grupo === 'deducao') deducoes += t.valor
-    else if (grupo === 'necessidade' || grupo === 'desejo' || grupo === 'investimento')
-      buckets[grupo] += t.valor
-    else naoClassificado += t.valor
-  }
-
-  // Aporte para conta de investimento (ex: aplicação em Cofrinhos) conta como
-  // "Investimentos e futuro" — resgate (o caminho inverso) não conta como gasto nem receita
-  for (const legs of transferencias.values()) {
-    const despesaLeg = legs.find((l) => l.tipo === 'despesa')
-    const receitaLeg = legs.find((l) => l.tipo === 'receita')
-    if (!despesaLeg || !receitaLeg) continue
-    const tipoOrigem = despesaLeg.conta_id ? contaTipoMap.get(despesaLeg.conta_id) : null
-    const tipoDestino = receitaLeg.conta_id ? contaTipoMap.get(receitaLeg.conta_id) : null
-    if (tipoDestino === 'investimento' && tipoOrigem !== 'investimento') {
-      buckets.investimento += despesaLeg.valor
-    }
-  }
-
-  return { rendaBruta, deducoes, rendaLiquida: rendaBruta - deducoes, buckets, naoClassificado }
 }
 
 function agruparPorSubcategoria(
@@ -214,7 +131,7 @@ function BarraProgresso({ grupo, valor, base }: { grupo: Grupo; valor: number; b
         <h3 className="text-sm font-semibold text-texto">{ROTULO_GRUPO[grupo]}</h3>
         <span className="text-xs font-medium text-texto-suave">meta {meta}%</span>
       </div>
-      <p className="mb-2 text-[11px] font-medium uppercase tracking-wide" style={{ color: COR_GRUPO[grupo] }}>
+      <p className="mb-2 text-[11px] font-medium" style={{ color: COR_GRUPO[grupo] }}>
         {CONCEITO_GRUPO[grupo]}
       </p>
       <p className="mb-2 text-2xl font-bold text-texto">{moeda(valor)}</p>
@@ -223,7 +140,7 @@ function BarraProgresso({ grupo, valor, base }: { grupo: Grupo; valor: number; b
           className="h-full rounded-full transition-all"
           style={{
             width: `${larguraBarra}%`,
-            backgroundColor: dentro ? COR_GRUPO[grupo] : '#dc4c4c',
+            backgroundColor: dentro ? COR_GRUPO[grupo] : 'var(--despesa)',
           }}
         />
       </div>
@@ -297,15 +214,15 @@ function PainelResumoPeriodo({
 
       <div className="mb-4 grid grid-cols-3 gap-3">
         <div>
-          <p className="text-[11px] font-medium uppercase tracking-wide text-texto-suave">Renda líquida</p>
+          <p className="text-[11px] font-medium text-texto-suave">Renda líquida</p>
           <p className="text-lg font-bold text-texto">{moeda(resultado.rendaLiquida)}</p>
         </div>
         <div>
-          <p className="text-[11px] font-medium uppercase tracking-wide text-texto-suave">Gasto/investido</p>
+          <p className="text-[11px] font-medium text-texto-suave">Gasto/investido</p>
           <p className="text-lg font-bold text-texto">{moeda(totalGasto)}</p>
         </div>
         <div>
-          <p className="text-[11px] font-medium uppercase tracking-wide text-texto-suave">Sobra</p>
+          <p className="text-[11px] font-medium text-texto-suave">Sobra</p>
           <p className={`text-lg font-bold ${sobra >= 0 ? 'text-receita' : 'text-despesa'}`}>{moeda(sobra)}</p>
         </div>
       </div>
@@ -332,7 +249,7 @@ function PainelResumoPeriodo({
                     className="h-full rounded-full"
                     style={{
                       width: `${Math.min(100, (perc / meta) * 100)}%`,
-                      backgroundColor: dentro ? COR_GRUPO[grupo] : '#dc4c4c',
+                      backgroundColor: dentro ? COR_GRUPO[grupo] : 'var(--despesa)',
                     }}
                   />
                 </div>
@@ -351,7 +268,7 @@ function PainelResumoPeriodo({
       <div className="mt-4 grid gap-4 border-t border-borda pt-4 sm:grid-cols-3">
         {grupos.map((grupo) => (
           <div key={grupo}>
-            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-texto-suave">
+            <h3 className="mb-2 text-xs font-semibold text-texto-suave">
               {ROTULO_GRUPO[grupo]}
             </h3>
             {detalhe[grupo].length === 0 ? (
@@ -410,9 +327,7 @@ export default function Calculadora503020Page() {
       const { data } = await buscarTudo<TransacaoCalc>((de, ate) =>
         supabase
           .from('transacoes')
-          .select(
-            'id, data, valor, tipo, escopo, dono_id, categoria_id, subcategoria_id, conta_id, transferencia_id, fatura_cartao_id, neutro'
-          )
+          .select(CAMPOS_TRANSACAO_CALC)
           .eq('status', 'pago')
           .gte('data', inicio)
           .lte('data', fim)
@@ -547,7 +462,7 @@ export default function Calculadora503020Page() {
         <h2 className="mb-3 text-sm font-semibold text-texto">Nosso modelo 50/30/20</h2>
         <table className="w-full min-w-[640px] border-collapse text-sm">
           <thead>
-            <tr className="border-b border-borda text-left text-xs font-medium uppercase tracking-wide text-texto-suave">
+            <tr className="border-b border-borda text-left text-xs font-medium text-texto-suave">
               <th className="py-2 pr-3">Modelo tradicional</th>
               <th className="py-2 pr-3">Nossa adaptação</th>
               <th className="py-2 pr-3">Conceito</th>
@@ -606,18 +521,18 @@ export default function Calculadora503020Page() {
       {/* KPIs de renda */}
       <div className="mb-6 grid gap-4 sm:grid-cols-3">
         <div className="cartao p-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-texto-suave">Renda líquida</p>
+          <p className="text-xs font-medium text-texto-suave">Renda líquida</p>
           <p className="mt-1 text-2xl font-bold text-texto">{moeda(resultado.rendaLiquida)}</p>
           <p className="mt-1 text-[11px] text-texto-suave">
             Bruta {moeda(resultado.rendaBruta)} − descontos obrigatórios {moeda(resultado.deducoes)}
           </p>
         </div>
         <div className="cartao p-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-texto-suave">Total gasto/investido</p>
+          <p className="text-xs font-medium text-texto-suave">Total gasto/investido</p>
           <p className="mt-1 text-2xl font-bold text-texto">{moeda(totalGasto)}</p>
         </div>
         <div className="cartao p-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-texto-suave">Sobra do mês</p>
+          <p className="text-xs font-medium text-texto-suave">Sobra do mês</p>
           <p className={`mt-1 text-2xl font-bold ${sobra >= 0 ? 'text-receita' : 'text-despesa'}`}>
             {moeda(sobra)}
           </p>
@@ -686,7 +601,7 @@ export default function Calculadora503020Page() {
         <div className="h-64 w-full">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={tendencia} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--borda)" />
               <XAxis dataKey="mes" tick={{ fontSize: 12 }} />
               <YAxis tick={{ fontSize: 12 }} unit="%" />
               <Tooltip formatter={(v) => `${v}%`} />

@@ -299,8 +299,8 @@ function FormularioLancamento() {
     `flex-1 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors ${
       tipo === valorTipo
         ? valorTipo === 'receita'
-          ? 'bg-receita text-white'
-          : 'bg-despesa text-white'
+          ? 'bg-receita text-sobre-cor'
+          : 'bg-despesa text-sobre-cor'
         : 'border border-borda bg-superficie text-texto-suave hover:bg-fundo'
     }`
 
@@ -395,7 +395,7 @@ function FormularioLancamento() {
               }}
               className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
                 pagoCom === 'conta'
-                  ? 'bg-marinho text-white'
+                  ? 'bg-primaria text-sobre-cor'
                   : 'border border-borda bg-superficie text-texto-suave hover:bg-fundo'
               }`}
             >
@@ -406,7 +406,7 @@ function FormularioLancamento() {
               onClick={() => setPagoCom('cartao')}
               className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
                 pagoCom === 'cartao'
-                  ? 'bg-marinho text-white'
+                  ? 'bg-primaria text-sobre-cor'
                   : 'border border-borda bg-superficie text-texto-suave hover:bg-fundo'
               }`}
             >

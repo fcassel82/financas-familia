@@ -6,7 +6,7 @@ import { supabase } from '@/lib/supabaseClient'
 import { buscarTudo } from '@/lib/buscarTudo'
 import {
   chaveCompetencia,
-  dataBR,
+  rotuloDia,
   deslocarMes,
   hojeISO,
   limitesCompetencia,
@@ -231,7 +231,7 @@ export default function TransacoesPage() {
   const classeAba = (valor: string) =>
     `rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
       aba === valor
-        ? 'bg-primaria text-white'
+        ? 'bg-primaria text-sobre-cor'
         : 'border border-borda bg-superficie text-texto-suave hover:bg-fundo'
     }`
 
@@ -326,8 +326,8 @@ export default function TransacoesPage() {
     `flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
       ativo
         ? valorTipo === 'receita'
-          ? 'bg-receita text-white'
-          : 'bg-despesa text-white'
+          ? 'bg-receita text-sobre-cor'
+          : 'bg-despesa text-sobre-cor'
         : 'border border-borda bg-superficie text-texto-suave hover:bg-fundo'
     }`
 
@@ -338,7 +338,7 @@ export default function TransacoesPage() {
         acao={
           <Link
             href="/lancamentos"
-            className="inline-flex items-center gap-2 rounded-lg bg-primaria px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primaria-escura"
+            className="inline-flex items-center gap-2 rounded-lg bg-primaria px-4 py-2.5 text-sm font-semibold text-sobre-cor transition-colors hover:bg-primaria-escura"
           >
             <IconeMais className="h-4 w-4" />
             Novo lançamento
@@ -519,8 +519,9 @@ export default function TransacoesPage() {
         <div className="space-y-4">
           {porDia.map(([dia, itens]) => (
             <div key={dia} className="cartao overflow-hidden">
-              <div className="border-b border-borda bg-fundo/60 px-4 py-2">
-                <span className="text-xs font-semibold text-texto-suave">{dataBR(dia)}</span>
+              <div className="flex items-baseline justify-between gap-2 border-b border-borda bg-fundo/60 px-4 py-2 text-sm font-semibold text-texto-suave">
+                <span>{rotuloDia(dia)}</span>
+                <span>{moedaComSinal(totalDoDia(itens))}</span>
               </div>
               <ul className="divide-y divide-borda">
                 {itens.map((t) => {
@@ -632,7 +633,7 @@ export default function TransacoesPage() {
                                 }
                                 className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
                                   formEdicao.pago_com === 'conta'
-                                    ? 'bg-marinho text-white'
+                                    ? 'bg-primaria text-sobre-cor'
                                     : 'border border-borda bg-superficie text-texto-suave hover:bg-fundo'
                                 }`}
                               >
@@ -645,7 +646,7 @@ export default function TransacoesPage() {
                                 }
                                 className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
                                   formEdicao.pago_com === 'cartao'
-                                    ? 'bg-marinho text-white'
+                                    ? 'bg-primaria text-sobre-cor'
                                     : 'border border-borda bg-superficie text-texto-suave hover:bg-fundo'
                                 }`}
                               >
@@ -736,7 +737,7 @@ export default function TransacoesPage() {
                             {t.descricao}
                             {t.neutro && (
                               <span
-                                className="ml-2 rounded-full border border-borda px-1.5 py-0.5 align-middle text-[10px] font-medium uppercase tracking-wide text-texto-suave"
+                                className="ml-2 rounded-full border border-borda px-1.5 py-0.5 align-middle text-[10px] font-medium text-texto-suave"
                                 title="Entra no saldo da conta, mas não conta como receita nem despesa"
                               >
                                 neutro
@@ -781,4 +782,15 @@ export default function TransacoesPage() {
       )}
     </Pagina>
   )
+}
+
+// Total do dia no cabeçalho do grupo; lançamento neutro não entra (igual aos totais do mês)
+function totalDoDia(itens: { tipo: string; valor: number; neutro: boolean }[]): number {
+  return itens
+    .filter((t) => !t.neutro)
+    .reduce((s, t) => s + (t.tipo === 'receita' ? Number(t.valor) : -Number(t.valor)), 0)
+}
+
+function moedaComSinal(valor: number): string {
+  return `${valor >= 0 ? '+' : '−'}${moeda(Math.abs(valor))}`
 }

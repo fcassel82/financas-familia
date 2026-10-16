@@ -176,7 +176,7 @@ export default function BensPage() {
   return (
     <Pagina>
       <CabecalhoPagina
-        titulo="Bens e Móveis"
+        titulo="Bens e móveis"
         descricao="Inventário do patrimônio da casa, com valor atual estimado pela depreciação."
         acao={
           <BotaoPrimario onClick={abrirNovo}>
@@ -243,7 +243,7 @@ export default function BensPage() {
               <div key={b.id} className="cartao p-4">
                 <div className="mb-3 flex items-start justify-between gap-2">
                   <div className="flex min-w-0 items-center gap-3">
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-marinho/10 text-marinho">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primaria/10 text-primaria">
                       <IconeSofa className="h-4 w-4" />
                     </span>
                     <div className="min-w-0">
@@ -257,7 +257,7 @@ export default function BensPage() {
                   <button
                     onClick={() => apagar(b)}
                     aria-label={`Apagar ${b.nome}`}
-                    className="rounded p-1.5 text-texto-suave transition-colors hover:bg-despesa/10 hover:text-despesa"
+                    className="rounded-lg p-2.5 text-texto-suave transition-colors hover:bg-despesa/10 hover:text-despesa"
                   >
                     <IconeLixeira className="h-4 w-4" />
                   </button>

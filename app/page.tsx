@@ -1,22 +1,34 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
 import { buscarTudo } from '@/lib/buscarTudo'
 import {
   chaveCompetencia,
-  dataBR,
+  diasAte,
   hojeISO,
   limitesCompetencia,
   moeda,
+  rotuloDia,
   rotuloMesLongo,
   situacaoVencimento,
   somarDias,
   textoVencimento,
 } from '@/lib/formato'
-import { IconeAlerta, IconeBanco, IconeGrafico, IconeMais } from '@/components/Icones'
+import {
+  CAMPOS_TRANSACAO_CALC,
+  COR_GRUPO,
+  METAS,
+  ROTULO_GRUPO,
+  calcular,
+  type Grupo,
+  type Resultado,
+  type Subcategoria,
+  type TransacaoCalc,
+} from '@/lib/regra503020'
+import { IconeBanco, IconeGrafico, IconeImportar, IconeMais } from '@/components/Icones'
 import { EstadoVazio, Pagina } from '@/components/ui'
 
 type Pendencia = {
@@ -39,6 +51,12 @@ type Movimento = {
 
 type Conta = { id: string; nome: string; cor: string | null; saldo_inicial: number; tipo: string }
 
+const GRUPOS: Grupo[] = ['necessidade', 'desejo', 'investimento']
+
+function porcento(valor: number): string {
+  return `${valor.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`
+}
+
 export default function InicioPage() {
   const router = useRouter()
   const [carregando, setCarregando] = useState(true)
@@ -47,6 +65,7 @@ export default function InicioPage() {
   const [saldos, setSaldos] = useState<Record<string, number>>({})
   const [doMes, setDoMes] = useState<Movimento[]>([])
   const [lembretes, setLembretes] = useState<Pendencia[]>([])
+  const [regua, setRegua] = useState<Resultado | null>(null)
 
   const hoje = hojeISO()
   const mesAtual = chaveCompetencia(hoje)
@@ -74,9 +93,11 @@ export default function InicioPage() {
         { data: todosMovimentos },
         { data: movimentosMes },
         { data: pendencias },
+        { data: subcategorias },
+        { data: transacoesRegua },
       ] = await Promise.all([
-          supabase.from('contas').select('id, nome, cor, saldo_inicial, tipo').order('nome'),
-          buscarTudo((de, ate) =>
+        supabase.from('contas').select('id, nome, cor, saldo_inicial, tipo').order('nome'),
+        buscarTudo((de, ate) =>
           supabase
             .from('transacoes')
             .select('conta_id, valor, tipo')
@@ -84,28 +105,40 @@ export default function InicioPage() {
             .order('id')
             .range(de, ate)
         ),
+        supabase
+          .from('transacoes')
+          .select('id, data, descricao, valor, tipo, categorias(nome), contas(nome, cor)')
+          .eq('status', 'pago')
+          .is('transferencia_id', null)
+          // O pagamento agregado de uma fatura de cartão é a mesma despesa das
+          // compras já lançadas individualmente — contar as duas dobra o gasto
+          .is('fatura_cartao_id', null)
+          // Lançamento neutro (ex: adiantamento salarial já recebido fora do sistema)
+          // existe só pro saldo bater, não é receita/despesa real
+          .eq('neutro', false)
+          .gte('data', inicio)
+          .lte('data', fim)
+          .order('data', { ascending: false }),
+        // Lembretes: contas em aberto que vencem até 7 dias à frente
+        supabase
+          .from('transacoes')
+          .select('id, descricao, valor, tipo, data_vencimento')
+          .eq('status', 'pendente')
+          .lte('data_vencimento', limiteLembrete)
+          .order('data_vencimento'),
+        // Régua 50/30/20: mesma conta da Calculadora, só que do mês atual
+        supabase.from('subcategorias').select('id, categoria_id, nome, grupo_503020'),
+        buscarTudo<TransacaoCalc>((de, ate) =>
           supabase
             .from('transacoes')
-            .select('id, data, descricao, valor, tipo, categorias(nome), contas(nome, cor)')
+            .select(CAMPOS_TRANSACAO_CALC)
             .eq('status', 'pago')
-            .is('transferencia_id', null)
-            // O pagamento agregado de uma fatura de cartão é a mesma despesa das
-            // compras já lançadas individualmente — contar as duas dobra o gasto
-            .is('fatura_cartao_id', null)
-            // Lançamento neutro (ex: adiantamento salarial já recebido fora do sistema)
-            // existe só pro saldo bater, não é receita/despesa real
-            .eq('neutro', false)
             .gte('data', inicio)
             .lte('data', fim)
-            .order('data', { ascending: false }),
-          // Lembretes: contas em aberto que vencem até 7 dias à frente
-          supabase
-            .from('transacoes')
-            .select('id, descricao, valor, tipo, data_vencimento')
-            .eq('status', 'pendente')
-            .lte('data_vencimento', limiteLembrete)
-            .order('data_vencimento'),
-        ])
+            .order('id')
+            .range(de, ate)
+        ),
+      ])
 
       const lista = (contasData ?? []) as Conta[]
       setContas(lista)
@@ -120,6 +153,13 @@ export default function InicioPage() {
 
       setDoMes((movimentosMes ?? []) as unknown as Movimento[])
       setLembretes((pendencias ?? []) as Pendencia[])
+
+      const subcategoriaMap = new Map(
+        ((subcategorias ?? []) as Subcategoria[]).map((s) => [s.id, s])
+      )
+      const contaTipoMap = new Map(lista.map((c) => [c.id, c.tipo]))
+      setRegua(calcular(transacoesRegua ?? [], subcategoriaMap, contaTipoMap))
+
       setCarregando(false)
     }
     carregar()
@@ -138,8 +178,19 @@ export default function InicioPage() {
     .reduce((s, m) => s + Number(m.valor), 0)
   const resultadoMes = receitasMes - despesasMes
 
-  const lancamentosDeHoje = doMes.filter((m) => m.data === hoje)
-  const ultimos = doMes.slice(0, 8)
+  // Últimos lançamentos agrupados por dia ("Hoje", "Ontem", "Segunda-feira, 12 de out.")
+  const ultimosPorDia = useMemo(() => {
+    const mapa = new Map<string, Movimento[]>()
+    for (const m of doMes.slice(0, 10)) {
+      const lista = mapa.get(m.data)
+      if (lista) lista.push(m)
+      else mapa.set(m.data, [m])
+    }
+    return Array.from(mapa.entries())
+  }, [doMes])
+
+  const { inicio: inicioMes, fim: fimMes } = limitesCompetencia(mesAtual)
+  const periodo = `${diaEMes(inicioMes)} a ${diaEMes(fimMes)}`
 
   const dataExtenso = new Date().toLocaleDateString('pt-BR', {
     weekday: 'long',
@@ -157,135 +208,110 @@ export default function InicioPage() {
 
   return (
     <Pagina>
-      {/* Saudação */}
-      <div className="mb-6">
-        <h1 className="text-xl font-semibold text-texto sm:text-2xl">
-          Olá{nome ? `, ${nome}` : ''}
+      <div className="mb-5">
+        <h1 className="text-2xl font-extrabold tracking-tight text-texto sm:text-3xl">
+          {rotuloMesLongo(mesAtual)}
         </h1>
-        <p className="mt-1 text-sm text-texto-suave first-letter:uppercase">{dataExtenso}</p>
+        <p className="mt-1 text-sm text-texto-suave">
+          {nome ? `Olá, ${nome}. ` : ''}Hoje é {dataExtenso}.
+        </p>
       </div>
-
-      {/* Cartões de resumo */}
-      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="cartao p-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-texto-suave">
-            Saldo em contas
-          </p>
-          <p
-            className={`mt-1 text-2xl font-bold ${saldoEmContas >= 0 ? 'text-texto' : 'text-despesa'}`}
-          >
-            {moeda(saldoEmContas)}
-          </p>
-        </div>
-
-        <div className="cartao p-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-texto-suave">
-            Receitas do mês
-          </p>
-          <p className="mt-1 text-2xl font-bold text-receita">{moeda(receitasMes)}</p>
-        </div>
-
-        <div className="cartao p-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-texto-suave">
-            Despesas do mês
-          </p>
-          <p className="mt-1 text-2xl font-bold text-despesa">{moeda(despesasMes)}</p>
-        </div>
-
-        <div className="cartao p-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-texto-suave">
-            Resultado do mês
-          </p>
-          <p
-            className={`mt-1 text-2xl font-bold ${resultadoMes >= 0 ? 'text-receita' : 'text-despesa'}`}
-          >
-            {moeda(resultadoMes)}
-          </p>
-        </div>
-      </div>
-
-      {/* Lembretes de vencimento */}
-      {lembretes.length > 0 && (
-        <section className="mb-6 rounded-xl border border-alerta/30 bg-alerta/5 p-4">
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <h2 className="flex items-center gap-2 text-sm font-semibold text-texto">
-              <IconeAlerta className="h-4 w-4 text-alerta" />
-              Contas a vencer
-            </h2>
-            <Link href="/contas-pagar" className="text-xs font-medium text-primaria hover:underline">
-              Ver todas
-            </Link>
-          </div>
-
-          <ul className="space-y-2">
-            {lembretes.slice(0, 5).map((p) => {
-              const atrasada = situacaoVencimento(p.data_vencimento) === 'vencida'
-              return (
-                <li key={p.id} className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-texto">{p.descricao}</p>
-                    <p className={`text-xs ${atrasada ? 'font-medium text-despesa' : 'text-texto-suave'}`}>
-                      {textoVencimento(p.data_vencimento)} · {dataBR(p.data_vencimento)}
-                    </p>
-                  </div>
-                  <span
-                    className={`shrink-0 whitespace-nowrap text-sm font-semibold ${
-                      p.tipo === 'receita' ? 'text-receita' : 'text-despesa'
-                    }`}
-                  >
-                    {moeda(p.valor)}
-                  </span>
-                </li>
-              )
-            })}
-          </ul>
-
-          {lembretes.length > 5 && (
-            <p className="mt-2 text-xs text-texto-suave">
-              e mais {lembretes.length - 5} conta{lembretes.length - 5 > 1 ? 's' : ''}.
-            </p>
-          )}
-        </section>
-      )}
 
       <div className="grid gap-6 lg:grid-cols-3">
-        {/* Coluna principal */}
         <div className="space-y-6 lg:col-span-2">
-          {/* Hoje */}
+          {/* O mês numa frase */}
+          <section aria-label="Resumo do mês">
+            <p className="text-lg leading-snug text-texto">
+              Neste mês entraram{' '}
+              <strong className="font-bold whitespace-nowrap text-receita">{moeda(receitasMes)}</strong>{' '}
+              e saíram{' '}
+              <strong className="font-bold whitespace-nowrap text-despesa">{moeda(despesasMes)}</strong>.
+            </p>
+            <p className="mt-2 flex flex-wrap items-baseline gap-x-2">
+              <span className="text-sm text-texto-suave">
+                {resultadoMes >= 0 ? 'Sobrou' : 'Faltaram'}
+              </span>
+              <span
+                className={`text-3xl font-extrabold tracking-tight sm:text-4xl ${
+                  resultadoMes >= 0 ? 'text-receita' : 'text-despesa'
+                }`}
+              >
+                {moeda(Math.abs(resultadoMes))}
+              </span>
+            </p>
+            <p className="mt-1 text-xs text-texto-suave">
+              Mês de competência: {periodo}, por causa do salário que cai no fim do mês.
+            </p>
+          </section>
+
+          <ReguaMes resultado={regua} />
+
+          {/* Contas a vencer */}
           <section className="cartao p-4">
-            <h2 className="mb-3 text-sm font-semibold text-texto">Lançamentos de hoje</h2>
-            {lancamentosDeHoje.length === 0 ? (
-              <p className="py-6 text-center text-sm text-texto-suave">
-                Nenhum lançamento hoje.
+            <div className="mb-1 flex items-center justify-between gap-2">
+              <h2 className="text-base font-semibold text-texto">Contas a vencer</h2>
+              <Link
+                href="/contas-pagar"
+                className="inline-flex min-h-11 items-center px-1 text-sm font-semibold text-primaria hover:underline"
+              >
+                Ver tudo
+              </Link>
+            </div>
+
+            {lembretes.length === 0 ? (
+              <p className="py-3 text-sm text-texto-suave">
+                Nenhuma conta em aberto vence nos próximos 7 dias.
               </p>
             ) : (
-              <ul className="divide-y divide-borda">
-                {lancamentosDeHoje.map((m) => (
-                  <ItemMovimento key={m.id} movimento={m} />
-                ))}
-              </ul>
+              <>
+                <ul className="divide-y divide-borda">
+                  {lembretes.slice(0, 5).map((p) => (
+                    <li key={p.id} className="flex min-h-14 items-center justify-between gap-3 py-2">
+                      <div className="min-w-0">
+                        <p className="truncate font-medium text-texto">{p.descricao}</p>
+                        <span className={`mt-1 ${classeChipVencimento(p.data_vencimento)}`}>
+                          {textoVencimento(p.data_vencimento)}
+                        </span>
+                      </div>
+                      <span
+                        className={`shrink-0 whitespace-nowrap font-semibold ${
+                          p.tipo === 'receita' ? 'text-receita' : 'text-texto'
+                        }`}
+                      >
+                        {moeda(p.valor)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                {lembretes.length > 5 && (
+                  <p className="mt-2 text-sm text-texto-suave">
+                    E mais {lembretes.length - 5} conta{lembretes.length - 5 > 1 ? 's' : ''}.
+                  </p>
+                )}
+              </>
             )}
           </section>
 
-          {/* Últimos do mês */}
-          <section className="cartao p-4">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-texto">
-                Últimos lançamentos · {rotuloMesLongo(mesAtual)}
-              </h2>
-              <Link href="/transacoes" className="text-xs font-medium text-primaria hover:underline">
+          {/* Últimos do mês, por dia */}
+          <section>
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <h2 className="text-base font-semibold text-texto">Últimos lançamentos</h2>
+              <Link
+                href="/transacoes"
+                className="inline-flex min-h-11 items-center px-1 text-sm font-semibold text-primaria hover:underline"
+              >
                 Ver todos
               </Link>
             </div>
 
-            {ultimos.length === 0 ? (
+            {ultimosPorDia.length === 0 ? (
               <EstadoVazio
-                titulo="Nenhum lançamento este mês"
-                descricao="Comece registrando um gasto ou importando o extrato do banco."
+                titulo="Nenhum lançamento neste mês"
+                descricao="Registre um gasto ou importe o extrato do banco."
                 acao={
                   <Link
                     href="/lancamentos"
-                    className="inline-flex items-center gap-2 rounded-lg bg-primaria px-4 py-2.5 text-sm font-semibold text-white hover:bg-primaria-escura"
+                    className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-primaria px-4 text-sm font-semibold text-sobre-cor hover:bg-primaria-escura"
                   >
                     <IconeMais className="h-4 w-4" />
                     Novo lançamento
@@ -293,11 +319,21 @@ export default function InicioPage() {
                 }
               />
             ) : (
-              <ul className="divide-y divide-borda">
-                {ultimos.map((m) => (
-                  <ItemMovimento key={m.id} movimento={m} mostrarData />
+              <div className="space-y-3">
+                {ultimosPorDia.map(([dia, itens]) => (
+                  <div key={dia}>
+                    <div className="flex items-baseline justify-between px-1 pb-1 text-sm font-medium text-texto-suave">
+                      <span>{rotuloDia(dia)}</span>
+                      <span>{moedaComSinal(totalDoDia(itens))}</span>
+                    </div>
+                    <ul className="cartao divide-y divide-borda px-4">
+                      {itens.map((m) => (
+                        <ItemMovimento key={m.id} movimento={m} />
+                      ))}
+                    </ul>
+                  </div>
                 ))}
-              </ul>
+              </div>
             )}
           </section>
         </div>
@@ -305,10 +341,13 @@ export default function InicioPage() {
         {/* Coluna lateral */}
         <div className="space-y-6">
           <section className="cartao p-4">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-texto">Saldo por conta</h2>
-              <Link href="/contas" className="text-xs font-medium text-primaria hover:underline">
-                Gerenciar
+            <div className="mb-1 flex items-center justify-between">
+              <h2 className="text-base font-semibold text-texto">Saldo nas contas</h2>
+              <Link
+                href="/contas"
+                className="inline-flex min-h-11 items-center px-1 text-sm font-semibold text-primaria hover:underline"
+              >
+                Contas
               </Link>
             </div>
 
@@ -317,59 +356,71 @@ export default function InicioPage() {
                 <p className="text-sm text-texto-suave">Nenhuma conta cadastrada.</p>
                 <Link
                   href="/contas"
-                  className="mt-2 inline-block text-sm font-medium text-primaria hover:underline"
+                  className="mt-2 inline-flex min-h-11 items-center text-sm font-semibold text-primaria hover:underline"
                 >
                   Cadastrar conta
                 </Link>
               </div>
             ) : (
-              <ul className="space-y-2">
-                {contas.map((c) => (
-                  <li key={c.id} className="flex items-center justify-between gap-2">
-                    <span className="flex min-w-0 items-center gap-2">
-                      <span
-                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-white"
-                        style={{ backgroundColor: c.cor ?? '#2a78d6' }}
-                      >
-                        <IconeBanco className="h-3.5 w-3.5" />
+              <>
+                <ul className="divide-y divide-borda">
+                  {contas.map((c) => (
+                    <li key={c.id} className="flex min-h-12 items-center justify-between gap-2 py-1.5">
+                      <span className="flex min-w-0 items-center gap-2.5">
+                        <span
+                          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-white"
+                          style={{ backgroundColor: c.cor ?? '#2a78d6' }}
+                        >
+                          <IconeBanco className="h-3.5 w-3.5" />
+                        </span>
+                        <span className="truncate text-texto">{c.nome}</span>
                       </span>
-                      <span className="truncate text-sm text-texto">{c.nome}</span>
-                    </span>
-                    <span
-                      className={`whitespace-nowrap text-sm font-semibold ${
-                        (saldos[c.id] ?? 0) >= 0 ? 'text-texto' : 'text-despesa'
-                      }`}
-                    >
-                      {moeda(saldos[c.id] ?? 0)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
+                      <span
+                        className={`whitespace-nowrap font-semibold ${
+                          (saldos[c.id] ?? 0) >= 0 ? 'text-texto' : 'text-despesa'
+                        }`}
+                      >
+                        {moeda(saldos[c.id] ?? 0)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                <div className="mt-1 flex items-baseline justify-between gap-2 border-t border-borda pt-3">
+                  <span className="text-sm text-texto-suave">Em conta corrente e poupança</span>
+                  <span
+                    className={`whitespace-nowrap font-bold ${
+                      saldoEmContas >= 0 ? 'text-texto' : 'text-despesa'
+                    }`}
+                  >
+                    {moeda(saldoEmContas)}
+                  </span>
+                </div>
+              </>
             )}
           </section>
 
           <section className="cartao p-4">
-            <h2 className="mb-3 text-sm font-semibold text-texto">Atalhos</h2>
+            <h2 className="mb-3 text-base font-semibold text-texto">Atalhos</h2>
             <div className="space-y-2">
               <Link
                 href="/lancamentos"
-                className="flex items-center gap-3 rounded-lg border border-borda px-3 py-2.5 text-sm text-texto transition-colors hover:bg-fundo"
+                className="flex min-h-12 items-center gap-3 rounded-lg border border-borda px-3 text-texto transition-colors hover:bg-fundo"
               >
-                <IconeMais className="h-4 w-4 text-primaria" />
+                <IconeMais className="h-5 w-5 text-primaria" />
                 Novo lançamento
               </Link>
               <Link
                 href="/importar"
-                className="flex items-center gap-3 rounded-lg border border-borda px-3 py-2.5 text-sm text-texto transition-colors hover:bg-fundo"
+                className="flex min-h-12 items-center gap-3 rounded-lg border border-borda px-3 text-texto transition-colors hover:bg-fundo"
               >
-                <IconeBanco className="h-4 w-4 text-primaria" />
+                <IconeImportar className="h-5 w-5 text-primaria" />
                 Importar extrato
               </Link>
               <Link
                 href="/dashboard"
-                className="flex items-center gap-3 rounded-lg border border-borda px-3 py-2.5 text-sm text-texto transition-colors hover:bg-fundo"
+                className="flex min-h-12 items-center gap-3 rounded-lg border border-borda px-3 text-texto transition-colors hover:bg-fundo"
               >
-                <IconeGrafico className="h-4 w-4 text-primaria" />
+                <IconeGrafico className="h-5 w-5 text-primaria" />
                 Ver relatórios
               </Link>
             </div>
@@ -380,31 +431,173 @@ export default function InicioPage() {
   )
 }
 
-function ItemMovimento({
-  movimento,
-  mostrarData = false,
-}: {
-  movimento: Movimento
-  mostrarData?: boolean
-}) {
-  const receita = movimento.tipo === 'receita'
-  return (
-    <li className="flex items-center justify-between gap-3 py-2.5">
-      <div className="min-w-0">
-        <p className="truncate text-sm font-medium text-texto">{movimento.descricao}</p>
-        <p className="truncate text-xs text-texto-suave">
-          {mostrarData ? `${dataBR(movimento.data)} · ` : ''}
-          {movimento.categorias?.nome ?? 'Sem categoria'}
-          {movimento.contas?.nome ? ` · ${movimento.contas.nome}` : ''}
+/**
+ * Régua do mês: quanto da renda líquida foi para Essenciais, Qualidade de Vida
+ * e Futuro, com as marcas de 50% e 80% (50 + 30) para comparar com a meta.
+ */
+function ReguaMes({ resultado }: { resultado: Resultado | null }) {
+  if (!resultado) return null
+  const base = resultado.rendaLiquida
+
+  const cabecalho = (
+    <div className="mb-1 flex items-center justify-between gap-2">
+      <h2 className="text-base font-semibold text-texto">Para onde foi a renda</h2>
+      <Link
+        href="/calculadora-50-30-20"
+        className="inline-flex min-h-11 items-center px-1 text-sm font-semibold text-primaria hover:underline"
+      >
+        Calculadora
+      </Link>
+    </div>
+  )
+
+  if (base <= 0) {
+    return (
+      <section className="cartao p-4">
+        {cabecalho}
+        <p className="py-3 text-sm text-texto-suave">
+          A régua 50/30/20 aparece quando a renda deste mês for lançada.
         </p>
+      </section>
+    )
+  }
+
+  const perc = (valor: number) => (valor / base) * 100
+  const percNaoClassificado = perc(resultado.naoClassificado)
+  const somaPerc =
+    GRUPOS.reduce((s, g) => s + perc(resultado.buckets[g]), 0) + percNaoClassificado
+  // Se o mês gastou mais que a renda, a régua encolhe para caber tudo
+  const escala = Math.max(100, somaPerc)
+  const largura = (p: number) => `${(p / escala) * 100}%`
+
+  const descricaoBarra = [
+    ...GRUPOS.map((g) => `${ROTULO_GRUPO[g]} ${porcento(perc(resultado.buckets[g]))}`),
+    resultado.naoClassificado > 0 ? `sem grupo ${porcento(percNaoClassificado)}` : '',
+  ]
+    .filter(Boolean)
+    .join(', ')
+
+  return (
+    <section className="cartao p-4">
+      {cabecalho}
+
+      <div className="relative mt-1 mb-3 pt-5">
+        <div
+          className="flex h-6 gap-0.5 overflow-hidden rounded-md bg-fundo"
+          role="img"
+          aria-label={descricaoBarra}
+        >
+          {GRUPOS.map((g) => (
+            <span
+              key={g}
+              className="block h-full"
+              style={{ width: largura(perc(resultado.buckets[g])), backgroundColor: COR_GRUPO[g] }}
+            />
+          ))}
+          {resultado.naoClassificado > 0 && (
+            <span className="listras-sem-grupo block h-full" style={{ width: largura(percNaoClassificado) }} />
+          )}
+        </div>
+        {[50, 80].map((marco) => (
+          <span
+            key={marco}
+            aria-hidden="true"
+            className="absolute top-0 -bottom-1 border-l-2 border-dashed border-texto"
+            style={{ left: largura(marco) }}
+          >
+            <span className="absolute -top-0.5 left-1 text-xs font-semibold text-texto-suave">{marco}%</span>
+          </span>
+        ))}
+      </div>
+
+      <ul className="divide-y divide-borda">
+        {GRUPOS.map((g) => {
+          const p = perc(resultado.buckets[g])
+          const meta = METAS[g]
+          // Futuro tem meta mínima; os outros dois, meta máxima
+          const ok = g === 'investimento' ? p >= meta - 0.5 : p <= meta + 0.5
+          const textoMeta = g === 'investimento' ? `meta ${meta}% ou mais` : `meta até ${meta}%`
+          const textoSituacao =
+            g === 'investimento' ? (ok ? 'na meta' : 'abaixo') : ok ? 'dentro' : 'acima'
+          return (
+            <li
+              key={g}
+              className="grid grid-cols-[0.75rem_1fr_auto] items-center gap-x-2.5 gap-y-0.5 py-2.5"
+            >
+              <span className="h-3 w-3 rounded-sm" style={{ backgroundColor: COR_GRUPO[g] }} />
+              <span className="font-semibold text-texto">{ROTULO_GRUPO[g]}</span>
+              <span className="text-right font-semibold text-texto">{moeda(resultado.buckets[g])}</span>
+              <span className="col-start-2 col-end-4 flex items-center justify-between gap-2 text-sm text-texto-suave">
+                <span>
+                  {porcento(p)} da renda, {textoMeta}
+                </span>
+                <span
+                  className={`shrink-0 rounded-full px-2.5 py-0.5 text-sm font-semibold ${
+                    ok ? 'bg-fundo text-texto-suave' : 'bg-alerta/12 text-alerta'
+                  }`}
+                >
+                  {textoSituacao}
+                </span>
+              </span>
+            </li>
+          )
+        })}
+        {resultado.naoClassificado > 0 && (
+          <li className="grid grid-cols-[0.75rem_1fr_auto] items-center gap-x-2.5 gap-y-0.5 py-2.5">
+            <span className="listras-sem-grupo h-3 w-3 rounded-sm" />
+            <span className="font-semibold text-texto">Sem grupo</span>
+            <span className="text-right font-semibold text-texto">
+              {moeda(resultado.naoClassificado)}
+            </span>
+            <span className="col-start-2 col-end-4 text-sm text-texto-suave">
+              {porcento(percNaoClassificado)} da renda em subcategorias ainda sem grupo 50/30/20
+            </span>
+          </li>
+        )}
+      </ul>
+    </section>
+  )
+}
+
+function ItemMovimento({ movimento }: { movimento: Movimento }) {
+  const receita = movimento.tipo === 'receita'
+  const detalhe = [movimento.categorias?.nome ?? 'Sem categoria', movimento.contas?.nome]
+    .filter(Boolean)
+    .join(', ')
+  return (
+    <li className="flex min-h-14 items-center justify-between gap-3 py-2">
+      <div className="min-w-0">
+        <p className="truncate font-medium text-texto">{movimento.descricao}</p>
+        <p className="truncate text-sm text-texto-suave">{detalhe}</p>
       </div>
       <span
-        className={`shrink-0 whitespace-nowrap text-sm font-semibold ${
-          receita ? 'text-receita' : 'text-despesa'
-        }`}
+        className={`shrink-0 whitespace-nowrap font-semibold ${receita ? 'text-receita' : 'text-despesa'}`}
       >
-        {receita ? '+' : '−'} {moeda(movimento.valor)}
+        {receita ? '+' : '−'}
+        {moeda(movimento.valor)}
       </span>
     </li>
   )
+}
+
+function totalDoDia(itens: Movimento[]): number {
+  return itens.reduce((s, m) => s + (m.tipo === 'receita' ? Number(m.valor) : -Number(m.valor)), 0)
+}
+
+function moedaComSinal(valor: number): string {
+  return `${valor >= 0 ? '+' : '−'}${moeda(Math.abs(valor))}`
+}
+
+/** "2026-09-26" → "26 de set." */
+function diaEMes(iso: string): string {
+  const [ano, mes, dia] = iso.split('-').map(Number)
+  return new Date(ano, mes - 1, dia).toLocaleDateString('pt-BR', { day: 'numeric', month: 'short' })
+}
+
+function classeChipVencimento(iso: string): string {
+  const base = 'inline-flex rounded-full px-2.5 py-0.5 text-sm font-medium'
+  const situacao = situacaoVencimento(iso)
+  if (situacao === 'vencida') return `${base} bg-despesa/10 text-despesa`
+  if (situacao === 'hoje' || diasAte(iso) === 1) return `${base} bg-alerta/12 text-alerta`
+  return `${base} bg-fundo text-texto-suave`
 }

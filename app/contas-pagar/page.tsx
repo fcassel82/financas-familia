@@ -333,7 +333,7 @@ export default function ContasPagarPage() {
   const classeAba = (valor: string) =>
     `rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
       aba === valor
-        ? 'bg-primaria text-white'
+        ? 'bg-primaria text-sobre-cor'
         : 'border border-borda bg-superficie text-texto-suave hover:bg-fundo'
     }`
 
@@ -452,14 +452,14 @@ export default function ContasPagarPage() {
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => abrirBaixa(p)}
-                          className="rounded-lg bg-primaria px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-primaria-escura"
+                          className="rounded-lg bg-primaria px-3 py-1.5 text-xs font-semibold text-sobre-cor transition-colors hover:bg-primaria-escura"
                         >
                           Dar baixa
                         </button>
                         <button
                           onClick={() => apagar(p)}
                           aria-label={`Apagar ${p.descricao}`}
-                          className="rounded p-1.5 text-texto-suave transition-colors hover:bg-despesa/10 hover:text-despesa"
+                          className="rounded-lg p-2.5 text-texto-suave transition-colors hover:bg-despesa/10 hover:text-despesa"
                         >
                           <IconeLixeira className="h-4 w-4" />
                         </button>
@@ -482,7 +482,7 @@ export default function ContasPagarPage() {
               onClick={() => setForm({ ...form, tipo: 'despesa', categoria_id: '', subcategoria_id: '' })}
               className={`flex-1 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors ${
                 form.tipo === 'despesa'
-                  ? 'bg-despesa text-white'
+                  ? 'bg-despesa text-sobre-cor'
                   : 'border border-borda bg-superficie text-texto-suave hover:bg-fundo'
               }`}
             >
@@ -493,7 +493,7 @@ export default function ContasPagarPage() {
               onClick={() => setForm({ ...form, tipo: 'receita', categoria_id: '', subcategoria_id: '' })}
               className={`flex-1 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors ${
                 form.tipo === 'receita'
-                  ? 'bg-receita text-white'
+                  ? 'bg-receita text-sobre-cor'
                   : 'border border-borda bg-superficie text-texto-suave hover:bg-fundo'
               }`}
             >

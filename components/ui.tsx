@@ -35,7 +35,7 @@ export function BotaoPrimario({
   return (
     <button
       {...props}
-      className={`inline-flex items-center justify-center gap-2 rounded-lg bg-primaria px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primaria-escura disabled:opacity-50 ${props.className ?? ''}`}
+      className={`inline-flex items-center justify-center gap-2 rounded-lg bg-primaria px-4 py-2.5 text-sm font-semibold text-sobre-cor transition-colors hover:bg-primaria-escura disabled:opacity-50 ${props.className ?? ''}`}
     >
       {children}
     </button>
@@ -116,7 +116,7 @@ export function Modal({
           <button
             onClick={onFechar}
             aria-label="Fechar"
-            className="rounded p-1.5 text-texto-suave hover:bg-fundo"
+            className="rounded-lg p-2.5 text-texto-suave hover:bg-fundo"
           >
             <IconeFechar />
           </button>

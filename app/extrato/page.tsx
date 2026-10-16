@@ -400,7 +400,7 @@ export default function ExtratoPage() {
           acao={
             <a
               href="/contas"
-              className="inline-flex items-center gap-2 rounded-lg bg-primaria px-4 py-2.5 text-sm font-semibold text-white hover:bg-primaria-escura"
+              className="inline-flex items-center gap-2 rounded-lg bg-primaria px-4 py-2.5 text-sm font-semibold text-sobre-cor hover:bg-primaria-escura"
             >
               Cadastrar conta
             </a>
@@ -429,7 +429,7 @@ export default function ExtratoPage() {
                 <button
                   onClick={() => setMes(deslocarMes(mes, -1))}
                   aria-label="Mês anterior"
-                  className="rounded p-1.5 text-texto-suave hover:bg-fundo"
+                  className="rounded-lg p-2.5 text-texto-suave hover:bg-fundo"
                 >
                   <IconeSeta direcao="esquerda" className="h-4 w-4" />
                 </button>
@@ -437,7 +437,7 @@ export default function ExtratoPage() {
                 <button
                   onClick={() => setMes(deslocarMes(mes, 1))}
                   aria-label="Próximo mês"
-                  className="rounded p-1.5 text-texto-suave hover:bg-fundo"
+                  className="rounded-lg p-2.5 text-texto-suave hover:bg-fundo"
                 >
                   <IconeSeta direcao="direita" className="h-4 w-4" />
                 </button>

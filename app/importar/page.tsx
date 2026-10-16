@@ -66,7 +66,7 @@ function celulaParaTexto(valor: unknown): string {
 const classeBotaoOpcao = (ativo: boolean) =>
   `rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
     ativo
-      ? 'border-primaria bg-primaria text-white'
+      ? 'border-primaria bg-primaria text-sobre-cor'
       : 'border-borda bg-superficie text-texto-suave hover:bg-fundo'
   }`
 
@@ -533,7 +533,7 @@ export default function ImportarPage() {
             Selecione o arquivo do extrato ou a foto de um cupom fiscal para começar.
           </p>
 
-          <label className="inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg bg-primaria px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-primaria-escura disabled:opacity-50 sm:w-auto">
+          <label className="inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg bg-primaria px-4 py-3 text-sm font-semibold text-sobre-cor transition-colors hover:bg-primaria-escura disabled:opacity-50 sm:w-auto">
             <IconeImportar className="h-4 w-4" />
             {processandoArquivo ? 'Lendo arquivo...' : 'Selecionar arquivo'}
             <input

@@ -1118,7 +1118,7 @@ export default function VeiculosPage() {
   const classeAba = (valor: string) =>
     `rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
       aba === valor
-        ? 'bg-primaria text-white'
+        ? 'bg-primaria text-sobre-cor'
         : 'border border-borda bg-superficie text-texto-suave hover:bg-fundo'
     }`
 
@@ -1482,7 +1482,7 @@ export default function VeiculosPage() {
               <button
                 onClick={() => apagarVeiculo(veiculoAtual)}
                 aria-label="Apagar veículo"
-                className="rounded p-1.5 text-texto-suave transition-colors hover:bg-despesa/10 hover:text-despesa"
+                className="rounded-lg p-2.5 text-texto-suave transition-colors hover:bg-despesa/10 hover:text-despesa"
               >
                 <IconeLixeira className="h-4 w-4" />
               </button>
@@ -1663,14 +1663,14 @@ export default function VeiculosPage() {
                           <button
                             onClick={() => abrirEdicaoAbastecimento(a)}
                             aria-label="Editar abastecimento"
-                            className="rounded p-1.5 text-texto-suave transition-colors hover:bg-fundo hover:text-primaria"
+                            className="rounded-lg p-2.5 text-texto-suave transition-colors hover:bg-fundo hover:text-primaria"
                           >
                             <IconeLapis className="h-4 w-4" />
                           </button>
                           <button
                             onClick={() => apagarAbastecimento(a)}
                             aria-label="Apagar abastecimento"
-                            className="rounded p-1.5 text-texto-suave transition-colors hover:bg-despesa/10 hover:text-despesa"
+                            className="rounded-lg p-2.5 text-texto-suave transition-colors hover:bg-despesa/10 hover:text-despesa"
                           >
                             <IconeLixeira className="h-4 w-4" />
                           </button>
@@ -1723,14 +1723,14 @@ export default function VeiculosPage() {
                     <button
                       onClick={() => abrirEdicaoManutencao(m)}
                       aria-label="Editar manutenção"
-                      className="rounded p-1.5 text-texto-suave transition-colors hover:bg-fundo hover:text-primaria"
+                      className="rounded-lg p-2.5 text-texto-suave transition-colors hover:bg-fundo hover:text-primaria"
                     >
                       <IconeLapis className="h-4 w-4" />
                     </button>
                     <button
                       onClick={() => apagarManutencao(m.id)}
                       aria-label="Apagar manutenção"
-                      className="rounded p-1.5 text-texto-suave transition-colors hover:bg-despesa/10 hover:text-despesa"
+                      className="rounded-lg p-2.5 text-texto-suave transition-colors hover:bg-despesa/10 hover:text-despesa"
                     >
                       <IconeLixeira className="h-4 w-4" />
                     </button>
@@ -1914,7 +1914,7 @@ export default function VeiculosPage() {
                   onClick={() => setFormLancamento({ ...formLancamento, pago_com: 'conta' })}
                   className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
                     formLancamento.pago_com === 'conta'
-                      ? 'bg-marinho text-white'
+                      ? 'bg-primaria text-sobre-cor'
                       : 'border border-borda bg-superficie text-texto-suave hover:bg-fundo'
                   }`}
                 >
@@ -1925,7 +1925,7 @@ export default function VeiculosPage() {
                   onClick={() => setFormLancamento({ ...formLancamento, pago_com: 'cartao' })}
                   className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
                     formLancamento.pago_com === 'cartao'
-                      ? 'bg-marinho text-white'
+                      ? 'bg-primaria text-sobre-cor'
                       : 'border border-borda bg-superficie text-texto-suave hover:bg-fundo'
                   }`}
                 >

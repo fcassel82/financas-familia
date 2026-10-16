@@ -174,7 +174,7 @@ export default function GasPage() {
   return (
     <Pagina>
       <CabecalhoPagina
-        titulo="Chuveiro a Gás"
+        titulo="Chuveiro a gás"
         descricao="Trocas de botijão, para saber quanto dura e quanto custa por dia."
         acao={
           <BotaoPrimario onClick={abrirNova}>
@@ -334,7 +334,7 @@ export default function GasPage() {
                 <button
                   onClick={() => apagar(t)}
                   aria-label="Apagar troca"
-                  className="rounded p-1.5 text-texto-suave transition-colors hover:bg-despesa/10 hover:text-despesa"
+                  className="rounded-lg p-2.5 text-texto-suave transition-colors hover:bg-despesa/10 hover:text-despesa"
                 >
                   <IconeLixeira className="h-4 w-4" />
                 </button>
