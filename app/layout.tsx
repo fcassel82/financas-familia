@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Figtree } from "next/font/google";
 import "./globals.css";
 import AppShell from "@/components/AppShell";
+import { SCRIPT_TEMA } from "@/lib/tema";
 
 // Figtree: boa leitura em tela pequena, zero sem barra e algarismos de largura
 // igual (tabular-nums) para os valores ficarem alinhados
@@ -25,7 +26,16 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="pt-BR" className={`${figtree.variable} h-full antialiased`}>
+    // data-tema é trocado pelo SCRIPT_TEMA antes da hidratação, daí o suppressHydrationWarning
+    <html
+      lang="pt-BR"
+      data-tema="sistema"
+      className={`${figtree.variable} h-full antialiased`}
+      suppressHydrationWarning
+    >
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: SCRIPT_TEMA }} />
+      </head>
       <body className="min-h-full">
         <AppShell>{children}</AppShell>
       </body>

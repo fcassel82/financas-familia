@@ -40,8 +40,39 @@
   --futuro: #0e7490;
 }
 
+/*
+ * Modo escuro: escolhido no menu (data-tema="escuro") ou automático, seguindo
+ * o celular/computador quando a escolha é "sistema" (ou nenhuma).
+ * As duas regras têm os mesmos valores; mude sempre as duas juntas.
+ */
+:root[data-tema="escuro"] {
+  color-scheme: dark;
+
+  --fundo: #0f1923;
+  --superficie: #172430;
+  --borda: #26384a;
+
+  --texto: #e6edf3;
+  --texto-suave: #9aabbb;
+  --texto-apagado: #6b7d8f;
+
+  --primaria: #9cc0de;
+  --primaria-escura: #b7d2e8;
+  --marinho: #1c3a52;
+  --marinho-claro: #2a4d69;
+  --sobre-cor: #0f1923;
+
+  --receita: #4cc795;
+  --despesa: #f08a80;
+  --alerta: #e3a857;
+
+  --essencial: #6f9cc6;
+  --qualidade: #b48ad0;
+  --futuro: #3fb3cc;
+}
+
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-tema="claro"]):not([data-tema="escuro"]) {
     color-scheme: dark;
 
     --fundo: #0f1923;

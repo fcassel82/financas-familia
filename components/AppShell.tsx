@@ -30,6 +30,7 @@ import {
   IconeTendencia,
   IconeTransferir,
 } from './Icones'
+import SeletorTema from './SeletorTema'
 
 type ItemNav = {
   rota: string
@@ -206,6 +207,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         </nav>
 
         <div className="border-t border-borda p-3">
+          <div className="mb-3">
+            <p className="mb-1.5 px-1 text-xs font-semibold text-texto-suave">Aparência</p>
+            <SeletorTema />
+          </div>
           <Link
             href="/lancamentos"
             className="mb-2 flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primaria px-3 text-sm font-semibold text-sobre-cor transition-colors hover:bg-primaria-escura"
@@ -279,6 +284,16 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 </ul>
               </section>
             ))}
+
+            <section>
+              <h2 className="mb-1.5 px-1 text-sm font-semibold text-texto-suave">Aparência</h2>
+              <div className="rounded-xl border border-borda bg-superficie p-3">
+                <SeletorTema />
+                <p className="mt-2 px-1 text-sm text-texto-suave">
+                  Automático segue o modo do celular ou do computador.
+                </p>
+              </div>
+            </section>
 
             <section>
               <ul className="divide-y divide-borda rounded-xl border border-borda bg-superficie px-3">
