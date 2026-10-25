@@ -265,7 +265,7 @@ function Historico({ linhas }: { linhas: LinhaHistorico[] }) {
       {linhas.map((linha) => (
         <li key={linha.chave} className="py-3">
           <p className="text-sm font-semibold text-texto">{rotuloMesLongo(linha.chave)}</p>
-          <dl className="mt-1 grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+          <dl className="mt-1 space-y-0.5 text-sm">
             {COLUNAS.filter(({ campo }) => linha[campo] !== 0).map(({ campo, rotulo }) => (
               <div key={campo} className="flex justify-between gap-2">
                 <dt className="text-texto-suave">{rotulo}</dt>
