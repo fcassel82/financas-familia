@@ -7,6 +7,7 @@ import { hojeISO, moeda, somarMeses } from '@/lib/formato'
 import { sugerirCategoriaLancamento } from '@/lib/sugerirCategoriaHistorico'
 import { verificarDuplicata, type Duplicata } from '@/lib/verificarDuplicata'
 import type { MovimentoInvestimento } from '@/lib/investimentos'
+import { caminhoVoltarSeguro } from '@/lib/resumo'
 import { IconeLixeira } from '@/components/Icones'
 import {
   BotaoPrimario,
@@ -69,6 +70,8 @@ function montarParcelas(base: RegistroBase, quantidade: number, userId: string |
 function FormularioLancamento() {
   const searchParams = useSearchParams()
   const idEdicao = searchParams.get('id')
+  // Quem veio do Resumo (botão Editar) volta para ele; senão, para Lançamentos
+  const destino = caminhoVoltarSeguro(searchParams.get('voltar'))
   const router = useRouter()
 
   const [categorias, setCategorias] = useState<Categoria[]>([])
@@ -238,7 +241,7 @@ function FormularioLancamento() {
         )
         return
       }
-      router.push('/transacoes')
+      router.push(destino)
       return
     }
 
@@ -248,7 +251,7 @@ function FormularioLancamento() {
       setMensagem('Erro ao salvar: ' + error.message)
       return
     }
-    router.push('/transacoes')
+    router.push(destino)
   }
 
   async function salvarNovoLancamento() {
@@ -295,7 +298,7 @@ function FormularioLancamento() {
       setMensagem('Erro ao apagar: ' + error.message)
       return
     }
-    router.push('/transacoes')
+    router.push(destino)
   }
 
   const categoriasFiltradas = categorias.filter((c) => c.tipo === tipo)
@@ -590,7 +593,7 @@ function FormularioLancamento() {
           )}
 
           <div className="ml-auto flex gap-2">
-            <BotaoSecundario type="button" onClick={() => router.push('/transacoes')}>
+            <BotaoSecundario type="button" onClick={() => router.push(destino)}>
               Cancelar
             </BotaoSecundario>
             <BotaoPrimario type="submit" disabled={salvando}>

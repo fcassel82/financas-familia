@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import Link from 'next/link'
 import { textoParaCentavos, valorParaTextoMoeda } from '@/lib/formato'
 import { IconeFechar } from './Icones'
 
@@ -294,5 +295,38 @@ export function InputMoeda({
         }}
       />
     </div>
+  )
+}
+
+/** Setinha que indica que a linha abre o detalhe */
+export function Seta() {
+  return (
+    <span aria-hidden="true" className="shrink-0 text-lg leading-none text-texto-apagado">
+      ›
+    </span>
+  )
+}
+
+/**
+ * Linha de uma lista de somas que abre o detalhe (geralmente o Resumo). A
+ * linha inteira é o alvo do toque; os filhos ficam espalhados entre as pontas.
+ */
+export function LinhaLink({
+  href,
+  children,
+  className = '',
+}: {
+  href: string
+  children: React.ReactNode
+  className?: string
+}) {
+  return (
+    <Link
+      href={href}
+      className={`-mx-2 flex min-h-11 items-center gap-2 rounded-lg px-2 py-2 transition-colors hover:bg-fundo ${className}`}
+    >
+      <span className="flex min-w-0 flex-1 items-center justify-between gap-3">{children}</span>
+      <Seta />
+    </Link>
   )
 }
