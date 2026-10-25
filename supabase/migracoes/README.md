@@ -9,6 +9,7 @@ cole o conteúdo do arquivo e rode. Não precisa de CLI.
 | `rollback-20260909-gate-membro.sql` | Desfaz a migração acima, voltando ao gate `auth.uid() IS NOT NULL`. | só em emergência |
 | `20261024_movimento_investimento.sql` | Marca rendimento e aporte da empresa (sempre neutros) e guarda a data de conferência do saldo; reclassifica 6 lançamentos de EQTPREV e FGTS. | ✅ aplicada em 24/10/2026 |
 | `20261025_veiculo_pessoal_rls.sql` | Abastecimentos e manutenções de veículo pessoal só aparecem para o dono e o administrador. | ✅ aplicada em 25/10/2026 |
+| `20261025_lancado_por_automatico.sql` | Preenche os 110 lançamentos sem autor com o dono; o banco passa a definir o autor sozinho (não dá para trocar na edição) e o campo fica obrigatório. | ✅ aplicada em 25/10/2026 |
 
 ## Como conferir que deu certo
 
