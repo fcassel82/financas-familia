@@ -51,13 +51,24 @@ const FORM_VAZIO = {
   escopo: 'familiar',
 }
 
+// "Novo investimento" (tela Investimentos) chega aqui com ?novo=investimento.
+// O AppShell só mostra a página no navegador, então dá para ler a URL direto.
+function pediuNovoInvestimento() {
+  return (
+    typeof window !== 'undefined' &&
+    new URLSearchParams(window.location.search).get('novo') === 'investimento'
+  )
+}
+
 export default function ContasPage() {
   const [contas, setContas] = useState<Conta[]>([])
   const [saldos, setSaldos] = useState<Record<string, number>>({})
   const [carregando, setCarregando] = useState(true)
-  const [modalAberto, setModalAberto] = useState(false)
+  const [modalAberto, setModalAberto] = useState(pediuNovoInvestimento)
   const [editandoId, setEditandoId] = useState<string | null>(null)
-  const [form, setForm] = useState(FORM_VAZIO)
+  const [form, setForm] = useState(() =>
+    pediuNovoInvestimento() ? { ...FORM_VAZIO, tipo: 'investimento' } : FORM_VAZIO
+  )
   const [mensagem, setMensagem] = useState('')
   const [salvando, setSalvando] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)

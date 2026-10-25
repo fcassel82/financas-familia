@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabaseClient'
 import { hojeISO, moeda, somarMeses } from '@/lib/formato'
 import { sugerirCategoriaLancamento } from '@/lib/sugerirCategoriaHistorico'
 import { verificarDuplicata, type Duplicata } from '@/lib/verificarDuplicata'
+import type { MovimentoInvestimento } from '@/lib/investimentos'
 import { IconeLixeira } from '@/components/Icones'
 import {
   BotaoPrimario,
@@ -21,7 +22,7 @@ import {
 
 type Categoria = { id: string; nome: string; tipo: string }
 type Subcategoria = { id: string; categoria_id: string; nome: string }
-type Conta = { id: string; nome: string }
+type Conta = { id: string; nome: string; tipo: string }
 type Cartao = { id: string; nome: string }
 
 type RegistroBase = {
@@ -35,6 +36,7 @@ type RegistroBase = {
   conta_id: string | null
   cartao_id: string | null
   neutro: boolean
+  movimento_investimento: MovimentoInvestimento | null
 }
 
 /**
@@ -85,6 +87,8 @@ function FormularioLancamento() {
   const [cartaoId, setCartaoId] = useState('')
   const [escopo, setEscopo] = useState('pessoal')
   const [neutro, setNeutro] = useState(false)
+  // Só vale quando a conta é de investimento (ver contaEhInvestimento)
+  const [movimento, setMovimento] = useState<MovimentoInvestimento | ''>('')
   const [parcelar, setParcelar] = useState(false)
   const [parcelas, setParcelas] = useState('2')
   const [parcelaExistente, setParcelaExistente] = useState<{ numero: number; total: number } | null>(
@@ -102,7 +106,7 @@ function FormularioLancamento() {
       const [{ data: cats }, { data: subs }, { data: cts }, { data: crts }] = await Promise.all([
         supabase.from('categorias').select('id, nome, tipo').order('nome'),
         supabase.from('subcategorias').select('id, categoria_id, nome').order('nome'),
-        supabase.from('contas').select('id, nome').eq('ativo', true).order('nome'),
+        supabase.from('contas').select('id, nome, tipo').eq('ativo', true).order('nome'),
         supabase.from('cartoes_credito').select('id, nome').eq('ativo', true).order('nome'),
       ])
       setCategorias((cats ?? []) as Categoria[])
@@ -120,7 +124,7 @@ function FormularioLancamento() {
       const { data: t, error } = await supabase
         .from('transacoes')
         .select(
-          'data, descricao, categoria_id, subcategoria_id, valor, tipo, escopo, conta_id, cartao_id, parcela_numero, parcela_total, neutro'
+          'data, descricao, categoria_id, subcategoria_id, valor, tipo, escopo, conta_id, cartao_id, parcela_numero, parcela_total, neutro, movimento_investimento'
         )
         .eq('id', idEdicao)
         .single()
@@ -134,6 +138,7 @@ function FormularioLancamento() {
         setTipo(t.tipo)
         setEscopo(t.escopo)
         setNeutro(t.neutro ?? false)
+        setMovimento(t.movimento_investimento ?? '')
         setContaId(t.conta_id ?? '')
         setCartaoId(t.cartao_id ?? '')
         setPagoCom(t.cartao_id ? 'cartao' : 'conta')
@@ -158,7 +163,15 @@ function FormularioLancamento() {
     if (sugestao.subcategoriaId) setSubcategoriaId(sugestao.subcategoriaId)
   }
 
-  function montarRegistro() {
+  // Rendimento e aporte da empresa só existem em conta de investimento; trocar
+  // para outra conta (ou para cartão) desfaz a marcação sem precisar de efeito
+  const contaEhInvestimento =
+    pagoCom === 'conta' && contas.find((c) => c.id === contaId)?.tipo === 'investimento'
+  const marcacao = contaEhInvestimento ? movimento : ''
+  // O banco recusa lançamento marcado que não seja neutro
+  const neutroEfetivo = marcacao ? true : neutro
+
+  function montarRegistro(): RegistroBase {
     return {
       data,
       descricao,
@@ -169,7 +182,8 @@ function FormularioLancamento() {
       escopo,
       conta_id: pagoCom === 'conta' ? contaId || null : null,
       cartao_id: pagoCom === 'cartao' ? cartaoId || null : null,
-      neutro,
+      neutro: neutroEfetivo,
+      movimento_investimento: marcacao || null,
     }
   }
 
@@ -478,19 +492,35 @@ function FormularioLancamento() {
           do mês já desconta; sem o par neutro, ou o saldo não bate ou o salário
           é contado duas vezes.
         */}
+        {contaEhInvestimento && (
+          <Campo rotulo="Movimento no investimento">
+            <select
+              className={classeInput}
+              value={movimento}
+              onChange={(e) => setMovimento(e.target.value as MovimentoInvestimento | '')}
+            >
+              <option value="">Movimento comum</option>
+              <option value="rendimento">Rendimento</option>
+              <option value="aporte_empresa">Aporte da empresa</option>
+            </select>
+          </Campo>
+        )}
+
         <div className="rounded-lg border border-borda p-3">
           <label className="flex items-start gap-2 text-sm text-texto">
             <input
               type="checkbox"
               className="mt-0.5"
-              checked={neutro}
+              checked={neutroEfetivo}
+              disabled={!!marcacao}
               onChange={(e) => setNeutro(e.target.checked)}
             />
             <span>
               Lançamento neutro
               <span className="mt-0.5 block text-xs text-texto-suave">
-                Entra no saldo da conta, mas não conta como receita nem despesa nos
-                relatórios. Use para dinheiro que só transita.
+                {marcacao
+                  ? 'Rendimento e aporte da empresa não contam como renda do mês.'
+                  : 'Entra no saldo da conta, mas não conta como receita nem despesa nos relatórios. Use para dinheiro que só transita.'}
               </span>
             </span>
           </label>

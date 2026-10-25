@@ -21,7 +21,6 @@ type Imovel = {
   indice_base: number | null
   valor_avaliado_manual: number | null
 }
-type Investimento = { id: string; nome: string; tipo: string; valor_investido: number }
 type Divida = { id: string; nome: string; saldo_devedor: number; valor_parcela: number | null }
 type Pendencia = { valor: number; tipo: string; fatura_cartao_id: string | null }
 
@@ -88,7 +87,6 @@ export default function PatrimonioPage() {
   const [bens, setBens] = useState<Bem[]>([])
   const [veiculos, setVeiculos] = useState<Veiculo[]>([])
   const [imoveis, setImoveis] = useState<Imovel[]>([])
-  const [investimentos, setInvestimentos] = useState<Investimento[]>([])
   const [dividas, setDividas] = useState<Divida[]>([])
   const [indiceImovel, setIndiceImovel] = useState<number | null>(null)
   const [carregando, setCarregando] = useState(true)
@@ -101,7 +99,6 @@ export default function PatrimonioPage() {
       { data: bensData },
       { data: veiculosData },
       { data: imoveisData },
-      { data: investimentosData },
       { data: dividasData },
     ] = await Promise.all([
       supabase.from('contas').select('id, nome, tipo, saldo_inicial').order('nome'),
@@ -123,7 +120,6 @@ export default function PatrimonioPage() {
       supabase
         .from('imoveis')
         .select('id, nome, valor_pago, data_aquisicao, indice_base, valor_avaliado_manual'),
-      supabase.from('investimentos').select('id, nome, tipo, valor_investido'),
       supabase.from('dividas').select('id, nome, saldo_devedor, valor_parcela').eq('quitada', false),
     ])
 
@@ -133,7 +129,6 @@ export default function PatrimonioPage() {
     setBens((bensData ?? []) as Bem[])
     setVeiculos((veiculosData ?? []) as Veiculo[])
     setImoveis((imoveisData ?? []) as Imovel[])
-    setInvestimentos((investimentosData ?? []) as Investimento[])
     setDividas((dividasData ?? []) as Divida[])
     setCarregando(false)
   }, [])
@@ -199,13 +194,12 @@ export default function PatrimonioPage() {
       0
     )
     const totalBens = bens.reduce((s, b) => s + calcularDepreciacao(b).valorAtual, 0)
-    const totalInvestimentos = investimentos.reduce((s, i) => s + Number(i.valor_investido), 0)
 
     // "Bens" no sentido de patrimônio físico + aplicações registradas
     const totalDosBens = totalImoveis + totalVeiculos + totalBens
 
     const ativos =
-      totalDosBens + totalInvestimentos + saldoContasInvestimento + saldoContasCorrentes
+      totalDosBens + saldoContasInvestimento + saldoContasCorrentes
 
     const totalDividas = dividas.reduce((s, d) => s + Number(d.saldo_devedor), 0)
     const faturasEmAberto = pendencias
@@ -216,16 +210,13 @@ export default function PatrimonioPage() {
       .reduce((s, p) => s + Number(p.valor), 0)
     const passivos = totalDividas + faturasEmAberto + contasAPagar
 
-    // Aportes: o que está registrado em investimentos + o que foi transferido
-    // para contas de investimento. A separação de rendimento/aporte patronal
-    // ainda não existe — por isso ganho de capital não é estimado aqui.
-    const valorInvestido = totalInvestimentos + saldoContasInvestimento
+    // Rendimento e aporte da empresa ficam separados na tela Investimentos
+    const valorInvestido = saldoContasInvestimento
 
     return {
       totalImoveis,
       totalVeiculos,
       totalBens,
-      totalInvestimentos,
       totalDosBens,
       saldoContasInvestimento,
       saldoContasCorrentes,
@@ -238,7 +229,7 @@ export default function PatrimonioPage() {
       valorInvestido,
       parcelasMes: dividas.reduce((s, d) => s + Number(d.valor_parcela ?? 0), 0),
     }
-  }, [contas, saldosPorConta, imoveis, veiculos, bens, investimentos, dividas, pendencias, indiceImovel])
+  }, [contas, saldosPorConta, imoveis, veiculos, bens, dividas, pendencias, indiceImovel])
 
   const composicaoAtivos = useMemo(
     () =>
@@ -248,7 +239,7 @@ export default function PatrimonioPage() {
         { nome: 'Bens e móveis', valor: numeros.totalBens, href: '/bens' },
         {
           nome: 'Investimentos',
-          valor: numeros.totalInvestimentos + numeros.saldoContasInvestimento,
+          valor: numeros.saldoContasInvestimento,
           href: '/investimentos',
         },
         { nome: 'Contas correntes', valor: numeros.saldoContasCorrentes, href: '/contas' },
@@ -341,20 +332,8 @@ export default function PatrimonioPage() {
             <CartaoNumero
               titulo="Valor investido"
               valor={moeda(numeros.valorInvestido)}
-              detalhe="Saldo das aplicações — ainda com rendimento junto"
+              detalhe="Saldo das contas de investimento"
             />
-          </div>
-
-          {/* Ganho de capital ainda depende do detalhamento de aportes */}
-          <div className="cartao mb-6 flex flex-wrap items-center justify-between gap-3 p-4">
-            <div>
-              <p className="text-sm font-semibold text-texto">Ganho de capital</p>
-              <p className="mt-0.5 text-xs text-texto-suave">
-                Contas como FGTS e previdência trazem aporte patronal e rendimento misturados ao
-                que você aportou. Separar isso é o próximo passo, que ficou para depois.
-              </p>
-            </div>
-            <span className="whitespace-nowrap text-lg font-bold text-texto-suave">—</span>
           </div>
 
           <div className="grid gap-6 lg:grid-cols-2">

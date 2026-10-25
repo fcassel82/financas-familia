@@ -30,6 +30,7 @@ import {
 
 type Transacao = {
   neutro: boolean
+  movimento_investimento: 'rendimento' | 'aporte_empresa' | null
   id: string
   data: string
   descricao: string
@@ -147,7 +148,7 @@ export default function TransacoesPage() {
     let query = supabase
       .from('transacoes')
       .select(
-        'id, data, descricao, valor, tipo, escopo, neutro, dono_id, categoria_id, subcategoria_id, conta_id, cartao_id, categorias(nome), subcategorias(nome), contas(nome, cor), cartoes_credito!cartao_id(nome, cor)'
+        'id, data, descricao, valor, tipo, escopo, neutro, movimento_investimento, dono_id, categoria_id, subcategoria_id, conta_id, cartao_id, categorias(nome), subcategorias(nome), contas(nome, cor), cartoes_credito!cartao_id(nome, cor)'
       )
 
     // "Todos" junta familiar + meus pessoais; as duas abas isoladas filtram por escopo
@@ -737,10 +738,14 @@ export default function TransacoesPage() {
                             {t.descricao}
                             {t.neutro && (
                               <span
-                                className="ml-2 rounded-full border border-borda px-1.5 py-0.5 align-middle text-[10px] font-medium text-texto-suave"
+                                className="ml-2 rounded-full border border-borda px-2 py-0.5 align-middle text-xs font-medium text-texto-suave"
                                 title="Entra no saldo da conta, mas não conta como receita nem despesa"
                               >
-                                neutro
+                                {t.movimento_investimento === 'rendimento'
+                                  ? 'rendimento'
+                                  : t.movimento_investimento === 'aporte_empresa'
+                                    ? 'aporte da empresa'
+                                    : 'neutro'}
                               </span>
                             )}
                           </p>
