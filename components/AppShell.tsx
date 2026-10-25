@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
 import {
+  IconeAlerta,
   IconeBanco,
   IconeBroto,
   IconeCamadas,
@@ -90,6 +91,7 @@ const GRUPOS_NAV: GrupoNav[] = [
       { rota: '/cartoes', rotulo: 'Cartões', Icone: IconeCartao },
       { rota: '/categorias', rotulo: 'Categorias', Icone: IconeEtiqueta },
       { rota: '/importar', rotulo: 'Importar', Icone: IconeImportar },
+      { rota: '/pendencias', rotulo: 'Pendências', Icone: IconeAlerta },
     ],
   },
 ]

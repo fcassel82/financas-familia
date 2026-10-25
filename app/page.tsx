@@ -67,6 +67,7 @@ export default function InicioPage() {
   const [doMes, setDoMes] = useState<Movimento[]>([])
   const [lembretes, setLembretes] = useState<Pendencia[]>([])
   const [regua, setRegua] = useState<Resultado | null>(null)
+  const [qtdPendencias, setQtdPendencias] = useState(0)
 
   const hoje = hojeISO()
   const mesAtual = chaveCompetencia(hoje)
@@ -96,6 +97,8 @@ export default function InicioPage() {
         { data: pendencias },
         { data: subcategorias },
         { data: transacoesRegua },
+        { count: semOrigem },
+        { count: semCategoria },
       ] = await Promise.all([
         supabase.from('contas').select('id, nome, cor, saldo_inicial, tipo').order('nome'),
         buscarTudo((de, ate) =>
@@ -139,6 +142,22 @@ export default function InicioPage() {
             .order('id')
             .range(de, ate)
         ),
+        // Pendências de classificação (mesmos critérios da tela /pendencias)
+        supabase
+          .from('transacoes')
+          .select('id', { count: 'exact', head: true })
+          .eq('status', 'pago')
+          .is('conta_id', null)
+          .is('cartao_id', null)
+          .is('transferencia_id', null)
+          .is('fatura_cartao_id', null),
+        supabase
+          .from('transacoes')
+          .select('id', { count: 'exact', head: true })
+          .is('categoria_id', null)
+          .is('transferencia_id', null)
+          .is('fatura_cartao_id', null)
+          .eq('neutro', false),
       ])
 
       const lista = (contasData ?? []) as Conta[]
@@ -154,6 +173,7 @@ export default function InicioPage() {
 
       setDoMes((movimentosMes ?? []) as unknown as Movimento[])
       setLembretes((pendencias ?? []) as Pendencia[])
+      setQtdPendencias((semOrigem ?? 0) + (semCategoria ?? 0))
 
       const subcategoriaMap = new Map(
         ((subcategorias ?? []) as Subcategoria[]).map((s) => [s.id, s])
@@ -267,6 +287,21 @@ export default function InicioPage() {
               Mês de competência: {periodo}, por causa do salário que cai no fim do mês.
             </p>
           </section>
+
+          {qtdPendencias > 0 && (
+            <Link
+              href="/pendencias"
+              className="flex min-h-14 items-center justify-between gap-3 rounded-xl border border-alerta/30 bg-alerta/10 px-4 py-3 transition-colors hover:bg-alerta/15"
+            >
+              <span className="text-texto">
+                <strong className="font-semibold">{qtdPendencias}</strong>{' '}
+                {qtdPendencias === 1 ? 'pendência' : 'pendências'} de conta ou categoria para classificar
+              </span>
+              <span className="flex shrink-0 items-center gap-1 text-sm font-semibold text-alerta">
+                Resolver <Seta />
+              </span>
+            </Link>
+          )}
 
           <ReguaMes resultado={regua} de={inicioMes} ate={fimMes} />
 
