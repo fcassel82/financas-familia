@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import {
   Bar,
   BarChart,
@@ -22,6 +23,7 @@ import {
   chaveCompetencia,
   chaveMes,
   deslocarMes,
+  limitesCompetencia,
   limitesDoMes,
   moeda,
   rotuloMesCurto,
@@ -29,7 +31,8 @@ import {
   somarDias,
 } from '@/lib/formato'
 import { IconeSeta } from '@/components/Icones'
-import { CabecalhoPagina, Pagina, SeletorMultiplo } from '@/components/ui'
+import { CabecalhoPagina, LinhaLink, Pagina, Seta, SeletorMultiplo } from '@/components/ui'
+import { linkResumo, type FiltroResumo } from '@/lib/resumo'
 import {
   CAMPOS_TRANSACAO_CALC,
   COR_GRUPO,
@@ -71,6 +74,14 @@ const QUADRO_COMPARATIVO: { grupo: Grupo; tradicional: string }[] = [
   { grupo: 'investimento', tradicional: 'Investimentos' },
 ]
 
+type ItemDetalhe = { id: string; nome: string; valor: number }
+const ID_APORTES = '__aportes__'
+
+/** Do primeiro ao último dia dos meses de competência informados */
+function limitesParaFiltro(primeiro: string, ultimo: string): { de: string; ate: string } {
+  return { de: limitesCompetencia(primeiro).inicio, ate: limitesCompetencia(ultimo).fim }
+}
+
 function passaQuem(t: TransacaoCalc, selecionados: string[]): boolean {
   if (selecionados.length === 0) return true
   if (t.escopo === 'familiar') return selecionados.includes(FAMILIAR)
@@ -83,20 +94,29 @@ function agruparPorSubcategoria(
   subcategoriaMap: Map<string, Subcategoria>,
   aportesInvestimento: number
 ) {
-  const totais = new Map<string, number>()
+  // Por id (e não por nome) para o Resumo conseguir abrir cada subcategoria
+  const totais = new Map<string, ItemDetalhe>()
   for (const t of transacoes) {
     if (t.neutro || t.fatura_cartao_id || t.transferencia_id || t.tipo !== 'despesa') continue
     const sub = t.subcategoria_id ? subcategoriaMap.get(t.subcategoria_id) : null
-    if ((sub?.grupo_503020 ?? null) !== grupo) continue
-    const nome = sub?.nome ?? 'Outro'
-    totais.set(nome, (totais.get(nome) ?? 0) + t.valor)
+    if (!sub || sub.grupo_503020 !== grupo) continue
+    const atual = totais.get(sub.id) ?? { id: sub.id, nome: sub.nome, valor: 0 }
+    atual.valor += t.valor
+    totais.set(sub.id, atual)
   }
   if (grupo === 'investimento' && aportesInvestimento > 0) {
-    totais.set('Aportes / Aplicações', (totais.get('Aportes / Aplicações') ?? 0) + aportesInvestimento)
+    totais.set(ID_APORTES, { id: ID_APORTES, nome: 'Aportes / Aplicações', valor: aportesInvestimento })
   }
-  return Array.from(totais.entries())
-    .map(([nome, valor]) => ({ nome, valor }))
-    .sort((a, b) => b.valor - a.valor)
+  return Array.from(totais.values()).sort((a, b) => b.valor - a.valor)
+}
+
+/** Link do Resumo para uma linha do detalhamento por grupo */
+function linkItem(filtro: FiltroResumo, grupo: Grupo, item: ItemDetalhe): string {
+  return linkResumo(
+    item.id === ID_APORTES
+      ? { ...filtro, grupo, movimento: 'aplicado', titulo: item.nome }
+      : { ...filtro, grupo, subcategoria: item.id, titulo: item.nome }
+  )
 }
 
 function calcularAportes(transacoes: TransacaoCalc[], contaTipoMap: Map<string, string>): number {
@@ -119,17 +139,30 @@ function calcularAportes(transacoes: TransacaoCalc[], contaTipoMap: Map<string, 
   return total
 }
 
-function BarraProgresso({ grupo, valor, base }: { grupo: Grupo; valor: number; base: number }) {
+function BarraProgresso({
+  grupo,
+  valor,
+  base,
+  href,
+}: {
+  grupo: Grupo
+  valor: number
+  base: number
+  href: string
+}) {
   const meta = METAS[grupo]
   const percReal = base > 0 ? (valor / base) * 100 : 0
   const dentro = percReal <= meta + 0.5
   const larguraBarra = Math.min(100, (percReal / meta) * 100)
 
   return (
-    <div className="cartao p-4">
+    <Link href={href} className="cartao block p-4 transition-colors hover:border-primaria/40">
       <div className="mb-1 flex items-baseline justify-between gap-2">
         <h3 className="text-sm font-semibold text-texto">{ROTULO_GRUPO[grupo]}</h3>
-        <span className="text-xs font-medium text-texto-suave">meta {meta}%</span>
+        <span className="flex items-baseline gap-2">
+          <span className="text-xs font-medium text-texto-suave">meta {meta}%</span>
+          <Seta />
+        </span>
       </div>
       <p className="mb-2 text-[11px] font-medium" style={{ color: COR_GRUPO[grupo] }}>
         {CONCEITO_GRUPO[grupo]}
@@ -151,12 +184,13 @@ function BarraProgresso({ grupo, valor, base }: { grupo: Grupo; valor: number; b
       <p className="border-t border-borda pt-2 text-[11px] italic text-texto-suave">
         {PERGUNTA_GRUPO[grupo]}
       </p>
-    </div>
+    </Link>
   )
 }
 
 /** Pizza colorida com a composição do período — Essenciais / Qualidade de Vida / Futuro / Não classificado */
-function GraficoPizzaClassificacao({ resultado }: { resultado: Resultado }) {
+function GraficoPizzaClassificacao({ resultado, filtro }: { resultado: Resultado; filtro: FiltroResumo }) {
+  const router = useRouter()
   const dados = (
     [
       ['necessidade', resultado.buckets.necessidade, COR_GRUPO.necessidade],
@@ -167,6 +201,7 @@ function GraficoPizzaClassificacao({ resultado }: { resultado: Resultado }) {
   )
     .map(([chave, valor, cor]) => ({
       nome: chave === ROTULO_NAO_CLASSIFICADO ? chave : ROTULO_GRUPO[chave as Grupo],
+      grupo: chave === ROTULO_NAO_CLASSIFICADO ? ('sem' as const) : (chave as Grupo),
       valor,
       cor,
     }))
@@ -182,7 +217,12 @@ function GraficoPizzaClassificacao({ resultado }: { resultado: Resultado }) {
         <PieChart>
           <Pie data={dados} dataKey="valor" nameKey="nome" innerRadius={48} outerRadius={80} paddingAngle={2}>
             {dados.map((d) => (
-              <Cell key={d.nome} fill={d.cor} />
+              <Cell
+                key={d.nome}
+                fill={d.cor}
+                cursor="pointer"
+                onClick={() => router.push(linkResumo({ ...filtro, grupo: d.grupo, titulo: d.nome }))}
+              />
             ))}
           </Pie>
           <Tooltip formatter={(v) => moeda(Number(v))} />
@@ -198,10 +238,12 @@ function PainelResumoPeriodo({
   titulo,
   resultado,
   detalhe,
+  filtro,
 }: {
   titulo: string
   resultado: Resultado
-  detalhe: Record<Grupo, { nome: string; valor: number }[]>
+  detalhe: Record<Grupo, ItemDetalhe[]>
+  filtro: FiltroResumo
 }) {
   const totalGasto =
     resultado.buckets.necessidade + resultado.buckets.desejo + resultado.buckets.investimento + resultado.naoClassificado
@@ -228,7 +270,7 @@ function PainelResumoPeriodo({
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <GraficoPizzaClassificacao resultado={resultado} />
+        <GraficoPizzaClassificacao resultado={resultado} filtro={filtro} />
 
         <div className="flex flex-col justify-center gap-3">
           {grupos.map((grupo) => {
@@ -237,9 +279,13 @@ function PainelResumoPeriodo({
             const perc = resultado.rendaLiquida > 0 ? (valor / resultado.rendaLiquida) * 100 : 0
             const dentro = perc <= meta + 0.5
             return (
-              <div key={grupo}>
+              <Link
+                key={grupo}
+                href={linkResumo({ ...filtro, grupo, titulo: ROTULO_GRUPO[grupo] })}
+                className="-mx-2 block rounded-lg px-2 py-1.5 transition-colors hover:bg-fundo"
+              >
                 <div className="mb-1 flex items-center justify-between text-xs">
-                  <span className="font-medium text-texto">{ROTULO_GRUPO[grupo]}</span>
+                  <span className="font-medium text-texto">{ROTULO_GRUPO[grupo]} ›</span>
                   <span className={dentro ? 'text-texto-suave' : 'font-medium text-despesa'}>
                     {perc.toFixed(1)}% <span className="text-texto-suave">(meta {meta}%)</span>
                   </span>
@@ -253,14 +299,17 @@ function PainelResumoPeriodo({
                     }}
                   />
                 </div>
-              </div>
+              </Link>
             )
           })}
           {resultado.naoClassificado > 0 && (
-            <p className="text-xs text-texto-suave">
+            <Link
+              href={linkResumo({ ...filtro, grupo: 'sem', titulo: 'Não classificado' })}
+              className="-mx-2 block rounded-lg px-2 py-1.5 text-xs text-texto-suave transition-colors hover:bg-fundo"
+            >
               <span className="inline-block h-2 w-2 rounded-full align-middle" style={{ backgroundColor: COR_NAO_CLASSIFICADO }} />{' '}
-              Não classificado: <span className="font-medium text-texto">{moeda(resultado.naoClassificado)}</span>
-            </p>
+              Não classificado: <span className="font-medium text-texto">{moeda(resultado.naoClassificado)}</span> ›
+            </Link>
           )}
         </div>
       </div>
@@ -274,11 +323,13 @@ function PainelResumoPeriodo({
             {detalhe[grupo].length === 0 ? (
               <p className="text-xs text-texto-suave">Nenhum gasto.</p>
             ) : (
-              <ul className="space-y-1">
+              <ul>
                 {detalhe[grupo].slice(0, 5).map((item) => (
-                  <li key={item.nome} className="flex items-center justify-between gap-2 text-xs">
-                    <span className="truncate text-texto-suave">{item.nome}</span>
-                    <span className="shrink-0 font-medium text-texto">{moeda(item.valor)}</span>
+                  <li key={item.id}>
+                    <LinhaLink href={linkItem(filtro, grupo, item)} className="text-xs">
+                      <span className="truncate text-texto-suave">{item.nome}</span>
+                      <span className="shrink-0 font-medium text-texto">{moeda(item.valor)}</span>
+                    </LinhaLink>
                   </li>
                 ))}
               </ul>
@@ -391,6 +442,7 @@ export default function Calculadora503020Page() {
       const r = calcular(doMes, subcategoriaMap, contaTipoMap)
       const base = r.rendaLiquida
       return {
+        chave,
         mes: rotuloMesCurto(chave),
         [ROTULO_GRUPO.necessidade]: base > 0 ? Number(((r.buckets.necessidade / base) * 100).toFixed(1)) : 0,
         [ROTULO_GRUPO.desejo]: base > 0 ? Number(((r.buckets.desejo / base) * 100).toFixed(1)) : 0,
@@ -417,7 +469,7 @@ export default function Calculadora503020Page() {
     [transacoes6Meses, subcategoriaMap, contaTipoMap]
   )
   const aportes6 = useMemo(() => calcularAportes(transacoes6Meses, contaTipoMap), [transacoes6Meses, contaTipoMap])
-  const detalhe6: Record<Grupo, { nome: string; valor: number }[]> = {
+  const detalhe6: Record<Grupo, ItemDetalhe[]> = {
     necessidade: agruparPorSubcategoria(transacoes6Meses, 'necessidade', subcategoriaMap, 0),
     desejo: agruparPorSubcategoria(transacoes6Meses, 'desejo', subcategoriaMap, 0),
     investimento: agruparPorSubcategoria(transacoes6Meses, 'investimento', subcategoriaMap, aportes6),
@@ -436,10 +488,40 @@ export default function Calculadora503020Page() {
     () => calcularAportes(transacoes12Meses, contaTipoMap),
     [transacoes12Meses, contaTipoMap]
   )
-  const detalhe12: Record<Grupo, { nome: string; valor: number }[]> = {
+  const detalhe12: Record<Grupo, ItemDetalhe[]> = {
     necessidade: agruparPorSubcategoria(transacoes12Meses, 'necessidade', subcategoriaMap, 0),
     desejo: agruparPorSubcategoria(transacoes12Meses, 'desejo', subcategoriaMap, 0),
     investimento: agruparPorSubcategoria(transacoes12Meses, 'investimento', subcategoriaMap, aportes12),
+  }
+
+  // Tocar numa soma abre o Resumo com a mesma regra 50/30/20, período e "Quem"
+  const router = useRouter()
+  function abrirMesDoGrafico(chave: string, grupo: Grupo) {
+    router.push(
+      linkResumo({
+        ...limitesParaFiltro(chave, chave),
+        regra: '503020',
+        membros: quemFiltro.length > 0 ? quemFiltro : undefined,
+        grupo,
+        titulo: `${ROTULO_GRUPO[grupo]} em ${rotuloMesCurto(chave)}`,
+      })
+    )
+  }
+  const membrosResumo = quemFiltro.length > 0 ? quemFiltro : undefined
+  const filtroDoMes: FiltroResumo = {
+    ...limitesParaFiltro(mesAtual, mesAtual),
+    regra: '503020',
+    membros: membrosResumo,
+  }
+  const filtro6: FiltroResumo = {
+    ...limitesParaFiltro(chavesCurto[0], chavesCurto[chavesCurto.length - 1]),
+    regra: '503020',
+    membros: membrosResumo,
+  }
+  const filtro12: FiltroResumo = {
+    ...limitesParaFiltro(chavesLongo[0], chavesLongo[chavesLongo.length - 1]),
+    regra: '503020',
+    membros: membrosResumo,
   }
 
   if (carregando && transacoes.length === 0) {
@@ -523,8 +605,21 @@ export default function Calculadora503020Page() {
         <div className="cartao p-4">
           <p className="text-xs font-medium text-texto-suave">Renda líquida</p>
           <p className="mt-1 text-2xl font-bold text-texto">{moeda(resultado.rendaLiquida)}</p>
-          <p className="mt-1 text-[11px] text-texto-suave">
-            Bruta {moeda(resultado.rendaBruta)} − descontos obrigatórios {moeda(resultado.deducoes)}
+          <p className="mt-1 text-xs text-texto-suave">
+            Bruta{' '}
+            <Link
+              href={linkResumo({ ...filtroDoMes, tipo: 'receita', titulo: 'Renda bruta' })}
+              className="font-medium text-texto underline decoration-dotted underline-offset-4"
+            >
+              {moeda(resultado.rendaBruta)}
+            </Link>{' '}
+            − descontos obrigatórios{' '}
+            <Link
+              href={linkResumo({ ...filtroDoMes, grupo: 'deducao', titulo: 'Descontos obrigatórios' })}
+              className="font-medium text-texto underline decoration-dotted underline-offset-4"
+            >
+              {moeda(resultado.deducoes)}
+            </Link>
           </p>
         </div>
         <div className="cartao p-4">
@@ -541,9 +636,15 @@ export default function Calculadora503020Page() {
 
       {/* As 3 barras */}
       <div className="mb-4 grid gap-4 sm:grid-cols-3">
-        <BarraProgresso grupo="necessidade" valor={resultado.buckets.necessidade} base={resultado.rendaLiquida} />
-        <BarraProgresso grupo="desejo" valor={resultado.buckets.desejo} base={resultado.rendaLiquida} />
-        <BarraProgresso grupo="investimento" valor={resultado.buckets.investimento} base={resultado.rendaLiquida} />
+        {(['necessidade', 'desejo', 'investimento'] as const).map((grupo) => (
+          <BarraProgresso
+            key={grupo}
+            grupo={grupo}
+            valor={resultado.buckets[grupo]}
+            base={resultado.rendaLiquida}
+            href={linkResumo({ ...filtroDoMes, grupo, titulo: ROTULO_GRUPO[grupo] })}
+          />
+        ))}
       </div>
 
       {/* Não classificado */}
@@ -558,7 +659,10 @@ export default function Calculadora503020Page() {
             </div>
             <div className="text-right">
               <p className="text-lg font-bold text-texto">{moeda(resultado.naoClassificado)}</p>
-              <Link href="/transacoes" className="text-xs font-medium text-primaria hover:underline">
+              <Link
+                href={linkResumo({ ...filtroDoMes, grupo: 'sem', titulo: 'Não classificado' })}
+                className="inline-flex min-h-11 items-center text-sm font-semibold text-primaria hover:underline"
+              >
                 Ver lançamentos
               </Link>
             </div>
@@ -580,11 +684,13 @@ export default function Calculadora503020Page() {
             {itens.length === 0 ? (
               <p className="text-xs text-texto-suave">Nenhum gasto neste período.</p>
             ) : (
-              <ul className="space-y-1.5">
+              <ul>
                 {itens.slice(0, 8).map((item) => (
-                  <li key={item.nome} className="flex items-center justify-between gap-2 text-xs">
-                    <span className="truncate text-texto-suave">{item.nome}</span>
-                    <span className="shrink-0 font-medium text-texto">{moeda(item.valor)}</span>
+                  <li key={item.id}>
+                    <LinhaLink href={linkItem(filtroDoMes, grupo, item)} className="text-xs">
+                      <span className="truncate text-texto-suave">{item.nome}</span>
+                      <span className="shrink-0 font-medium text-texto">{moeda(item.valor)}</span>
+                    </LinhaLink>
                   </li>
                 ))}
               </ul>
@@ -609,9 +715,27 @@ export default function Calculadora503020Page() {
               <ReferenceLine y={50} stroke={COR_GRUPO.necessidade} strokeDasharray="4 4" />
               <ReferenceLine y={30} stroke={COR_GRUPO.desejo} strokeDasharray="4 4" />
               <ReferenceLine y={20} stroke={COR_GRUPO.investimento} strokeDasharray="4 4" />
-              <Bar dataKey={ROTULO_GRUPO.necessidade} fill={COR_GRUPO.necessidade} radius={[4, 4, 0, 0]} />
-              <Bar dataKey={ROTULO_GRUPO.desejo} fill={COR_GRUPO.desejo} radius={[4, 4, 0, 0]} />
-              <Bar dataKey={ROTULO_GRUPO.investimento} fill={COR_GRUPO.investimento} radius={[4, 4, 0, 0]} />
+              <Bar
+                dataKey={ROTULO_GRUPO.necessidade}
+                fill={COR_GRUPO.necessidade}
+                radius={[4, 4, 0, 0]}
+                cursor="pointer"
+                onClick={(_, i) => abrirMesDoGrafico(tendencia[i].chave, 'necessidade')}
+              />
+              <Bar
+                dataKey={ROTULO_GRUPO.desejo}
+                fill={COR_GRUPO.desejo}
+                radius={[4, 4, 0, 0]}
+                cursor="pointer"
+                onClick={(_, i) => abrirMesDoGrafico(tendencia[i].chave, 'desejo')}
+              />
+              <Bar
+                dataKey={ROTULO_GRUPO.investimento}
+                fill={COR_GRUPO.investimento}
+                radius={[4, 4, 0, 0]}
+                cursor="pointer"
+                onClick={(_, i) => abrirMesDoGrafico(tendencia[i].chave, 'investimento')}
+              />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -626,11 +750,13 @@ export default function Calculadora503020Page() {
           titulo={`Resumo dos últimos ${MESES_TENDENCIA} meses`}
           resultado={resultado6}
           detalhe={detalhe6}
+          filtro={filtro6}
         />
         <PainelResumoPeriodo
           titulo={`Resumo dos últimos ${MESES_RESUMO_LONGO} meses`}
           resultado={resultado12}
           detalhe={detalhe12}
+          filtro={filtro12}
         />
       </div>
     </Pagina>

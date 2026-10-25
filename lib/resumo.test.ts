@@ -167,6 +167,12 @@ describe('entraNoResumo', () => {
     expect(entraNoResumo(saida, resgatado, ctx)).toBe(true)
   })
 
+  it('aplicado na regra 50/30/20 é a saída da conta comum', () => {
+    const f: FiltroResumo = { ...base, regra: '503020', grupo: 'investimento', movimento: 'aplicado' }
+    expect(entraNoResumo(lanc({ transferencia_id: 'apl', conta_id: 'itau' }), f, ctx)).toBe(true)
+    expect(entraNoResumo(lanc({ subcategoria_id: 'super' }), f, ctx)).toBe(false)
+  })
+
   it('movimento rendimento', () => {
     const f: FiltroResumo = { ...base, regra: 'conta', conta: 'itauinv', movimento: 'rendimento' }
     const rend = lanc({ conta_id: 'itauinv', neutro: true, tipo: 'receita', movimento_investimento: 'rendimento' })

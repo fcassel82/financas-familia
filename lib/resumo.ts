@@ -188,7 +188,12 @@ export function entraNoResumo(l: LancamentoResumo, f: FiltroResumo, ctx: Context
 
   if (f.grupo && grupoDoLancamento(l, ctx) !== f.grupo) return false
 
-  if (f.movimento === 'aplicado' && !(l.transferencia_id && l.tipo === 'receita')) return false
+  // Aplicado: dentro da conta de investimento é a chegada da transferência; na
+  // regra 50/30/20 é a saída da conta comum (a ponta que conta como Futuro)
+  if (f.movimento === 'aplicado') {
+    const ok = f.regra === '503020' ? ehAplicacao(l, ctx) : !!l.transferencia_id && l.tipo === 'receita'
+    if (!ok) return false
+  }
   if (f.movimento === 'resgatado' && !(l.transferencia_id && l.tipo === 'despesa')) return false
   if (
     (f.movimento === 'rendimento' || f.movimento === 'aporte_empresa') &&
