@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import Link from 'next/link'
 import { supabase } from '@/lib/supabaseClient'
 import { buscarTudo } from '@/lib/buscarTudo'
 import { moeda } from '@/lib/formato'
@@ -15,6 +16,7 @@ import {
   Mensagem,
   Modal,
   Pagina,
+  Seta,
   classeInput,
 } from '@/components/ui'
 
@@ -282,9 +284,17 @@ export default function ContasPage() {
                     </button>
                   </div>
 
-                  <p className={`text-lg font-semibold ${saldo >= 0 ? 'text-texto' : 'text-despesa'}`}>
-                    {moeda(saldo)}
-                  </p>
+                  <Link
+                    href={`/extrato?conta=${conta.id}`}
+                    className="-mx-2 flex min-h-11 items-center justify-between gap-2 rounded-lg px-2 transition-colors hover:bg-fundo"
+                  >
+                    <span className={`text-lg font-semibold ${saldo >= 0 ? 'text-texto' : 'text-despesa'}`}>
+                      {moeda(saldo)}
+                    </span>
+                    <span className="flex items-center gap-1 text-sm font-medium text-primaria">
+                      Ver extrato <Seta />
+                    </span>
+                  </Link>
 
                   <button
                     onClick={() => abrirEdicao(conta)}

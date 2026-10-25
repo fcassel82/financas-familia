@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import Link from 'next/link'
 import { supabase } from '@/lib/supabaseClient'
 import { buscarTudo } from '@/lib/buscarTudo'
 import { moeda } from '@/lib/formato'
@@ -15,6 +16,7 @@ import {
   Mensagem,
   Modal,
   Pagina,
+  Seta,
   classeInput,
 } from '@/components/ui'
 
@@ -263,10 +265,16 @@ export default function CartoesPage() {
 
                 <div className="space-y-3 p-4">
                   <div>
-                    <div className="mb-1 flex items-baseline justify-between text-sm">
+                    <Link
+                      href={`/faturas?cartao=${cartao.id}`}
+                      className="-mx-2 mb-1 flex min-h-11 items-center justify-between gap-2 rounded-lg px-2 text-sm transition-colors hover:bg-fundo"
+                    >
                       <span className="text-texto-suave">Gasto acumulado</span>
-                      <span className="font-semibold text-texto">{moeda(gasto)}</span>
-                    </div>
+                      <span className="flex items-center gap-2">
+                        <span className="font-semibold text-texto">{moeda(gasto)}</span>
+                        <Seta />
+                      </span>
+                    </Link>
                     {limite > 0 && (
                       <>
                         <div className="h-1.5 overflow-hidden rounded-full bg-fundo">

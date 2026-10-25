@@ -55,7 +55,11 @@ const FORM_LANCAMENTO_VAZIO = { descricao: '', categoria_id: '', subcategoria_id
 export default function ExtratoPage() {
   const [contas, setContas] = useState<Conta[]>([])
   const [cartoes, setCartoes] = useState<CartaoPagoPorConta[]>([])
-  const [contaId, setContaId] = useState('')
+  // ?conta= (vindo do Início ou de Contas) já abre o extrato dessa conta; o
+  // AppShell só mostra a página no navegador, então dá para ler a URL direto
+  const [contaId, setContaId] = useState(() =>
+    typeof window === 'undefined' ? '' : (new URLSearchParams(window.location.search).get('conta') ?? '')
+  )
   const [mes, setMes] = useState(chaveMes(new Date()))
   const [movimentos, setMovimentos] = useState<Movimento[]>([])
   const [saldoAnterior, setSaldoAnterior] = useState(0)

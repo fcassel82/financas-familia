@@ -187,6 +187,13 @@ export default function FaturasPage() {
   const [categorias, setCategorias] = useState<Categoria[]>([])
   const [subcategorias, setSubcategorias] = useState<Subcategoria[]>([])
   const [carregando, setCarregando] = useState(true)
+
+  // ?cartao= (vindo de Cartões) rola a tela até as faturas desse cartão
+  useEffect(() => {
+    if (carregando) return
+    const cartao = new URLSearchParams(window.location.search).get('cartao')
+    if (cartao) document.getElementById(`cartao-${cartao}`)?.scrollIntoView({ block: 'start' })
+  }, [carregando])
   const [userId, setUserId] = useState('')
   const [isAdmin, setIsAdmin] = useState(false)
   const [membros, setMembros] = useState<Membro[]>([])
@@ -915,7 +922,7 @@ export default function FaturasPage() {
               const semConfiguracao = !cartao.dia_fechamento || !cartao.dia_vencimento
 
               return (
-                <section key={cartao.id} className="cartao overflow-hidden">
+                <section key={cartao.id} id={`cartao-${cartao.id}`} className="cartao scroll-mt-20 overflow-hidden">
                   <div
                     className="flex flex-wrap items-center justify-between gap-2 p-4 text-white"
                     style={{ backgroundColor: cartao.cor ?? '#1c3a52' }}

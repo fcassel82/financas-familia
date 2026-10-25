@@ -6,7 +6,7 @@ import { supabase } from '@/lib/supabaseClient'
 import { buscarTudo } from '@/lib/buscarTudo'
 import { dataBR, diasAte, hojeISO, moeda, somarDias } from '@/lib/formato'
 import { IconeAlerta } from '@/components/Icones'
-import { CabecalhoPagina, Campo, InputMoeda, Pagina, classeInput } from '@/components/ui'
+import { CabecalhoPagina, Campo, InputMoeda, Pagina, Seta, classeInput } from '@/components/ui'
 
 type Pendencia = { valor: number; tipo: string; data_vencimento: string; descricao: string }
 
@@ -131,18 +131,30 @@ export default function PrevisaoPage() {
             {moeda(saldoAtual)}
           </p>
         </div>
-        <div className="cartao p-4">
-          <p className="text-xs text-texto-suave">A receber</p>
-          <p className="mt-1 whitespace-nowrap text-lg font-bold text-receita sm:text-xl">
-            {moeda(aReceber)}
-          </p>
-        </div>
-        <div className="cartao p-4">
-          <p className="text-xs text-texto-suave">A pagar</p>
-          <p className="mt-1 whitespace-nowrap text-lg font-bold text-despesa sm:text-xl">
-            {moeda(aPagar)}
-          </p>
-        </div>
+        <Link
+          href="/contas-pagar"
+          className="cartao flex items-center justify-between gap-2 p-4 transition-colors hover:border-primaria/40"
+        >
+          <span>
+            <span className="block text-xs text-texto-suave">A receber</span>
+            <span className="mt-1 block whitespace-nowrap text-lg font-bold text-receita sm:text-xl">
+              {moeda(aReceber)}
+            </span>
+          </span>
+          <Seta />
+        </Link>
+        <Link
+          href="/contas-pagar"
+          className="cartao flex items-center justify-between gap-2 p-4 transition-colors hover:border-primaria/40"
+        >
+          <span>
+            <span className="block text-xs text-texto-suave">A pagar</span>
+            <span className="mt-1 block whitespace-nowrap text-lg font-bold text-despesa sm:text-xl">
+              {moeda(aPagar)}
+            </span>
+          </span>
+          <Seta />
+        </Link>
         <div className="rounded-xl bg-marinho p-4 shadow-sm">
           <p className="text-xs text-white/70">Saldo geral</p>
           <p className="mt-1 whitespace-nowrap text-lg font-bold text-white sm:text-xl">
