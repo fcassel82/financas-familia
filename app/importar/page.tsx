@@ -29,7 +29,7 @@ type Categoria = { id: string; nome: string; tipo: string }
 type Subcategoria = { id: string; categoria_id: string; nome: string }
 type Formato = 'csv' | 'excel' | 'pdf' | 'ofx' | 'nfce'
 type MeioPagamento = 'dinheiro' | 'debito' | 'credito_vista' | 'credito_parcelado'
-type Conta = { id: string; nome: string }
+type Conta = { id: string; nome: string; tipo: string }
 type Cartao = { id: string; nome: string }
 
 const ROTULO_MEIO_PAGAMENTO: Record<MeioPagamento, string> = {
@@ -118,7 +118,7 @@ export default function ImportarPage() {
     }
     async function carregarContasECartoes() {
       const [{ data: cts }, { data: crts }] = await Promise.all([
-        supabase.from('contas').select('id, nome').eq('ativo', true).order('nome'),
+        supabase.from('contas').select('id, nome, tipo').eq('ativo', true).order('nome'),
         supabase.from('cartoes_credito').select('id, nome').eq('ativo', true).order('nome'),
       ])
       if (cts) setContas(cts)
@@ -435,7 +435,9 @@ export default function ImportarPage() {
     const { data: userData } = await supabase.auth.getUser()
     const userId = userData.user?.id
 
-    const contaParaSalvar = meioPagamento === 'debito' ? contaId || null : null
+    // Dinheiro também sai de uma conta (a carteira), senão o gasto fica sem conta
+    const contaParaSalvar =
+      meioPagamento === 'debito' || meioPagamento === 'dinheiro' ? contaId || null : null
     const cartaoParaSalvar =
       meioPagamento === 'credito_vista' || meioPagamento === 'credito_parcelado'
         ? cartaoId || null
@@ -505,11 +507,23 @@ export default function ImportarPage() {
           : linhasBrutas.length
 
   const meioPagamentoValido =
+    meioPagamento === 'debito' || meioPagamento === 'dinheiro' ? !!contaId : !!cartaoId
+
+  // No dinheiro, as carteiras aparecem primeiro na lista de contas
+  const contasDoMeio =
     meioPagamento === 'dinheiro'
-      ? true
-      : meioPagamento === 'debito'
-        ? !!contaId
-        : !!cartaoId
+      ? [...contas].sort((a, b) => Number(b.tipo === 'carteira') - Number(a.tipo === 'carteira'))
+      : contas
+
+  function escolherMeioPagamento(mp: MeioPagamento) {
+    setMeioPagamento(mp)
+    // Ao tocar em Dinheiro, já deixa a primeira carteira escolhida
+    if (mp === 'dinheiro') {
+      const carteira = contas.find((c) => c.tipo === 'carteira')
+      const atual = contas.find((c) => c.id === contaId)
+      if (carteira && atual?.tipo !== 'carteira') setContaId(carteira.id)
+    }
+  }
 
   const podeContinuarMapeamento =
     (formato === 'nfce'
@@ -665,7 +679,7 @@ export default function ImportarPage() {
                 <button
                   key={mp}
                   type="button"
-                  onClick={() => setMeioPagamento(mp)}
+                  onClick={() => escolherMeioPagamento(mp)}
                   className={classeBotaoOpcao(meioPagamento === mp)}
                 >
                   {ROTULO_MEIO_PAGAMENTO[mp]}
@@ -673,14 +687,17 @@ export default function ImportarPage() {
               ))}
             </div>
 
-            {meioPagamento === 'debito' && (
+            {(meioPagamento === 'debito' || meioPagamento === 'dinheiro') && (
               <select
                 value={contaId}
                 onChange={(e) => setContaId(e.target.value)}
                 className={classeInput}
+                aria-label={meioPagamento === 'dinheiro' ? 'Carteira ou conta do dinheiro' : 'Conta'}
               >
-                <option value="">Selecione a conta...</option>
-                {contas.map((c) => (
+                <option value="">
+                  {meioPagamento === 'dinheiro' ? 'De qual carteira saiu o dinheiro...' : 'Selecione a conta...'}
+                </option>
+                {contasDoMeio.map((c) => (
                   <option key={c.id} value={c.id}>{c.nome}</option>
                 ))}
               </select>
