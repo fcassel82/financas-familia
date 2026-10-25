@@ -7,6 +7,7 @@ cole o conteúdo do arquivo e rode. Não precisa de CLI.
 |---|---|---|
 | `20260909_exigir_perfil_de_membro.sql` | Exige linha em `perfis` para ler/escrever qualquer tabela. Fecha o achado crítico #1 da auditoria. | ⏳ pendente |
 | `rollback-20260909-gate-membro.sql` | Desfaz a migração acima, voltando ao gate `auth.uid() IS NOT NULL`. | só em emergência |
+| `20261024_movimento_investimento.sql` | Marca rendimento e aporte da empresa (sempre neutros) e guarda a data de conferência do saldo; reclassifica 6 lançamentos de EQTPREV e FGTS. | ✅ aplicada em 24/10/2026 |
 
 ## Como conferir que deu certo
 
