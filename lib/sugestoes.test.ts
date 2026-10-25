@@ -5,6 +5,7 @@ import {
   pareceCartao,
   sugerirCategoria,
   sugerirOrigem,
+  sugerirSubcategoria,
   type Historico,
 } from './sugestoes'
 
@@ -125,19 +126,83 @@ describe('sugerirCategoria', () => {
   ]
 
   it('mesma descrição traz categoria e subcategoria', () => {
-    const s = sugerirCategoria(hist({ descricao: 'EBN *SPOTIFY' }), historico, categorias, subcategorias)
-    expect(s[0]).toMatchObject({ categoria_id: 'assin', subcategoria_id: 'stream', nome: 'Assinaturas / Streaming' })
+    const s = sugerirCategoria(
+      hist({ descricao: 'EBN *SPOTIFY' }),
+      historico,
+      categorias,
+      subcategorias
+    )
+    expect(s[0]).toMatchObject({
+      categoria_id: 'assin',
+      subcategoria_id: 'stream',
+      nome: 'Assinaturas / Streaming',
+    })
     expect(s[0].motivo).toBe('Mesma descrição: 2 vezes')
   })
 
   it('dicionário de produtos para nota fiscal', () => {
-    const s = sugerirCategoria(hist({ descricao: 'SUCO DE UVA 1L' }), historico, categorias, subcategorias)
-    expect(s[0]).toMatchObject({ categoria_id: 'alim', subcategoria_id: 'suco', motivo: 'Pelo nome do produto' })
+    const s = sugerirCategoria(
+      hist({ descricao: 'SUCO DE UVA 1L' }),
+      historico,
+      categorias,
+      subcategorias
+    )
+    expect(s[0]).toMatchObject({
+      categoria_id: 'alim',
+      subcategoria_id: 'suco',
+      motivo: 'Pelo nome do produto',
+    })
   })
 
   it('só sugere categorias do mesmo tipo', () => {
-    const s = sugerirCategoria(hist({ descricao: 'Algo novo' }), historico, categorias, subcategorias)
+    const s = sugerirCategoria(
+      hist({ descricao: 'Algo novo' }),
+      historico,
+      categorias,
+      subcategorias
+    )
     expect(s.map((x) => x.categoria_id)).not.toContain('sal')
     expect(s.length).toBeGreaterThan(0)
+  })
+})
+
+describe('sugerirSubcategoria', () => {
+  const subs = [
+    { id: 'super', nome: 'Supermercado', categoria_id: 'alim' },
+    { id: 'suco', nome: 'Suco / Água / Refri', categoria_id: 'alim' },
+    { id: 'stream', nome: 'Streaming', categoria_id: 'assin' },
+  ]
+  const historico = [
+    hist({ descricao: 'ZAFFARI', categoria_id: 'alim', subcategoria_id: 'super' }),
+    hist({ descricao: 'ZAFFARI', categoria_id: 'alim', subcategoria_id: 'super' }),
+    hist({ descricao: 'EBN*SPOTIFY', categoria_id: 'assin', subcategoria_id: 'stream' }),
+  ]
+
+  it('só sugere subcategorias da categoria do lançamento', () => {
+    const s = sugerirSubcategoria(
+      hist({ descricao: 'ZAFFARI', categoria_id: 'alim' }),
+      historico,
+      subs
+    )
+    expect(s[0]).toMatchObject({
+      categoria_id: 'alim',
+      subcategoria_id: 'super',
+      nome: 'Supermercado',
+    })
+    expect(s[0].motivo).toBe('Mesma descrição: 2 vezes')
+    expect(s.map((x) => x.subcategoria_id)).not.toContain('stream')
+  })
+
+  it('dicionário de produtos dentro da categoria', () => {
+    const s = sugerirSubcategoria(
+      hist({ descricao: 'SUCO DE UVA', categoria_id: 'alim' }),
+      historico,
+      subs
+    )
+    expect(s[0]).toMatchObject({ subcategoria_id: 'suco', motivo: 'Pelo nome do produto' })
+  })
+
+  it('sem categoria não sugere nada', () => {
+    expect(sugerirSubcategoria(hist({ descricao: 'ZAFFARI' }), historico, subs)).toEqual([])
   })
 })

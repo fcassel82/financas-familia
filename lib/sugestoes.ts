@@ -52,7 +52,9 @@ export function normalizarDescricao(d: string): string {
 
 /** O que vem antes do "*" (sem espaços) ou a primeira palavra; nulo se tiver menos de 3 letras */
 export function comerciante(d: string): string | null {
-  const base = d.includes('*') ? d.split('*')[0].replace(/\s+/g, '') : (d.trim().split(/\s+/)[0] ?? '')
+  const base = d.includes('*')
+    ? d.split('*')[0].replace(/\s+/g, '')
+    : (d.trim().split(/\s+/)[0] ?? '')
   const nome = normalizarDescricao(base).replace(/\s+/g, '')
   return nome.length >= 3 ? nome : null
 }
@@ -136,20 +138,25 @@ export function sugerirOrigem(
 
   const doDono = doTipo.filter((h) => h.dono_id === alvo.dono_id)
   if (pareceCartao(alvo.descricao)) {
-    const usoCartoes = contar(doDono, (h) => (h.cartao_id && cartaoAtivo.has(h.cartao_id) ? `cartao:${h.cartao_id}` : null))
+    const usoCartoes = contar(doDono, (h) =>
+      h.cartao_id && cartaoAtivo.has(h.cartao_id) ? `cartao:${h.cartao_id}` : null
+    )
     const total = Array.from(usoCartoes.values()).reduce((s, n) => s + n, 0)
-    for (const [chave, n] of usoCartoes) somar(pontos, chave, n / total, 'Compra com jeito de cartão')
+    for (const [chave, n] of usoCartoes)
+      somar(pontos, chave, n / total, 'Compra com jeito de cartão')
   }
 
   // Reserva: o que essa pessoa mais usa (conta de investimento não é meio de pagamento)
   const usoGeral = contar(doDono, (h) => {
     const chave = chaveDe(h)
     if (!chave) return null
-    if (chave.startsWith('conta:') && contaAtiva.get(h.conta_id!)?.tipo === 'investimento') return null
+    if (chave.startsWith('conta:') && contaAtiva.get(h.conta_id!)?.tipo === 'investimento')
+      return null
     return chave
   })
   const totalGeral = Array.from(usoGeral.values()).reduce((s, n) => s + n, 0)
-  for (const [chave, n] of usoGeral) somar(pontos, chave, (0.5 * n) / totalGeral, 'Mais usado por quem lançou')
+  for (const [chave, n] of usoGeral)
+    somar(pontos, chave, (0.5 * n) / totalGeral, 'Mais usado por quem lançou')
 
   return melhores(pontos).map(([chave, p]) => {
     const [tipo, id] = chave.split(':') as ['conta' | 'cartao', string]
@@ -164,10 +171,14 @@ export function sugerirCategoria(
   categorias: CategoriaOpcao[],
   subcategorias: SubcategoriaOpcao[]
 ): SugestaoDeCategoria[] {
-  const categoriaDoTipo = new Map(categorias.filter((c) => c.tipo === alvo.tipo).map((c) => [c.id, c]))
+  const categoriaDoTipo = new Map(
+    categorias.filter((c) => c.tipo === alvo.tipo).map((c) => [c.id, c])
+  )
   const subPorId = new Map(subcategorias.map((s) => [s.id, s]))
   const chaveDe = (h: Historico) =>
-    h.categoria_id && categoriaDoTipo.has(h.categoria_id) ? `${h.categoria_id}|${h.subcategoria_id ?? ''}` : null
+    h.categoria_id && categoriaDoTipo.has(h.categoria_id)
+      ? `${h.categoria_id}|${h.subcategoria_id ?? ''}`
+      : null
 
   const doTipo = historico.filter((h) => h.tipo === alvo.tipo && chaveDe(h))
   const pontos = new Map<string, Pontuacao>()
@@ -196,11 +207,14 @@ export function sugerirCategoria(
   if (alvo.tipo === 'despesa') {
     const palpite = categoriaPeloProduto(alvo.descricao)
     const categoria = palpite
-      ? Array.from(categoriaDoTipo.values()).find((c) => normalizar(c.nome) === normalizar(palpite.categoria))
+      ? Array.from(categoriaDoTipo.values()).find(
+          (c) => normalizar(c.nome) === normalizar(palpite.categoria)
+        )
       : undefined
     if (palpite && categoria) {
       const sub = subcategorias.find(
-        (s) => s.categoria_id === categoria.id && normalizar(s.nome) === normalizar(palpite.subcategoria)
+        (s) =>
+          s.categoria_id === categoria.id && normalizar(s.nome) === normalizar(palpite.subcategoria)
       )
       somar(pontos, `${categoria.id}|${sub?.id ?? ''}`, 1.5, 'Pelo nome do produto')
     }
@@ -210,7 +224,8 @@ export function sugerirCategoria(
   const uso = contar(doTipo, chaveDe)
   const total = Array.from(uso.values()).reduce((s, n) => s + n, 0)
   const rotuloTipo = alvo.tipo === 'receita' ? 'receitas' : 'despesas'
-  for (const [chave, n] of uso) somar(pontos, chave, (0.5 * n) / total, `Mais usada em ${rotuloTipo}`)
+  for (const [chave, n] of uso)
+    somar(pontos, chave, (0.5 * n) / total, `Mais usada em ${rotuloTipo}`)
 
   return melhores(pontos).map(([chave, p]) => {
     const [categoriaId, subId] = chave.split('|')
@@ -224,4 +239,67 @@ export function sugerirCategoria(
       pontos: p.pontos,
     }
   })
+}
+
+/** Subcategoria para um lançamento que já tem categoria (aba "Sem subcategoria") */
+export function sugerirSubcategoria(
+  alvo: Historico,
+  historico: Historico[],
+  subcategorias: SubcategoriaOpcao[]
+): SugestaoDeCategoria[] {
+  const categoriaId = alvo.categoria_id
+  if (!categoriaId) return []
+  const daCategoria = new Map(
+    subcategorias.filter((s) => s.categoria_id === categoriaId).map((s) => [s.id, s])
+  )
+  const chaveDe = (h: Historico) =>
+    h.categoria_id === categoriaId && h.subcategoria_id && daCategoria.has(h.subcategoria_id)
+      ? h.subcategoria_id
+      : null
+
+  const comSub = historico.filter((h) => chaveDe(h))
+  const pontos = new Map<string, Pontuacao>()
+
+  const desc = normalizarDescricao(alvo.descricao)
+  if (desc) {
+    for (const [chave, n] of contar(
+      comSub.filter((h) => normalizarDescricao(h.descricao) === desc),
+      chaveDe
+    )) {
+      somar(pontos, chave, 3 * n, `Mesma descrição: ${vezes(n)}`)
+    }
+  }
+
+  const loja = comerciante(alvo.descricao)
+  if (loja) {
+    for (const [chave, n] of contar(
+      comSub.filter((h) => comerciante(h.descricao) === loja),
+      chaveDe
+    )) {
+      somar(pontos, chave, 2 * n, `Mesmo comerciante (${loja}): ${vezes(n)}`)
+    }
+  }
+
+  if (alvo.tipo === 'despesa') {
+    const palpite = categoriaPeloProduto(alvo.descricao)
+    const sub = palpite
+      ? Array.from(daCategoria.values()).find(
+          (s) => normalizar(s.nome) === normalizar(palpite.subcategoria)
+        )
+      : undefined
+    if (sub) somar(pontos, sub.id, 1.5, 'Pelo nome do produto')
+  }
+
+  const uso = contar(comSub, chaveDe)
+  const total = Array.from(uso.values()).reduce((s, n) => s + n, 0)
+  for (const [chave, n] of uso)
+    somar(pontos, chave, (0.5 * n) / total, 'Mais usada nesta categoria')
+
+  return melhores(pontos).map(([id, p]) => ({
+    categoria_id: categoriaId,
+    subcategoria_id: id,
+    nome: daCategoria.get(id)?.nome ?? '',
+    motivo: p.motivo,
+    pontos: p.pontos,
+  }))
 }

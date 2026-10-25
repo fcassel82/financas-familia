@@ -9,10 +9,18 @@ import {
   normalizarDescricao,
   sugerirCategoria,
   sugerirOrigem,
+  sugerirSubcategoria,
   type SugestaoDeCategoria,
   type SugestaoOrigem,
 } from '@/lib/sugestoes'
-import { BotaoPrimario, CabecalhoPagina, EstadoVazio, Mensagem, Pagina, classeInput } from '@/components/ui'
+import {
+  BotaoPrimario,
+  CabecalhoPagina,
+  EstadoVazio,
+  Mensagem,
+  Pagina,
+  classeInput,
+} from '@/components/ui'
 
 type Lancamento = {
   id: string
@@ -35,20 +43,54 @@ type Lancamento = {
   cartoes_credito: { nome: string } | null
 }
 type Conta = { id: string; nome: string; tipo: string; ativo: boolean }
-type Cartao = { id: string; nome: string; ativo: boolean; dia_fechamento: number | null; dia_vencimento: number | null }
+type Cartao = {
+  id: string
+  nome: string
+  ativo: boolean
+  dia_fechamento: number | null
+  dia_vencimento: number | null
+}
 type Categoria = { id: string; nome: string; tipo: string }
-type Subcategoria = { id: string; nome: string; categoria_id: string }
-type Aba = 'origem' | 'categoria'
+type Subcategoria = { id: string; nome: string; categoria_id: string; grupo_503020: string | null }
+type Aba = 'origem' | 'categoria' | 'subcategoria'
+
+const ROTULO_GRUPO: Record<string, string> = {
+  necessidade: 'Essenciais',
+  desejo: 'Qualidade de Vida',
+  investimento: 'Futuro',
+  deducao: 'Descontos obrigatórios',
+}
 
 const CAMPOS =
   'id, data, descricao, valor, tipo, status, dono_id, conta_id, cartao_id, categoria_id, subcategoria_id, transferencia_id, fatura_cartao_id, fatura_competencia, neutro, categorias(nome), contas(nome), cartoes_credito!cartao_id(nome)'
 
 function semOrigem(l: Lancamento): boolean {
-  return l.status === 'pago' && !l.conta_id && !l.cartao_id && !l.transferencia_id && !l.fatura_cartao_id
+  return (
+    l.status === 'pago' && !l.conta_id && !l.cartao_id && !l.transferencia_id && !l.fatura_cartao_id
+  )
 }
 
 function semCategoria(l: Lancamento): boolean {
   return !l.categoria_id && !l.transferencia_id && !l.fatura_cartao_id && !l.neutro
+}
+
+// Despesa com categoria e sem subcategoria: fica "Sem grupo" na régua 50/30/20
+function semSubcategoria(l: Lancamento): boolean {
+  return (
+    l.tipo === 'despesa' &&
+    l.status === 'pago' &&
+    !!l.categoria_id &&
+    !l.subcategoria_id &&
+    !l.transferencia_id &&
+    !l.fatura_cartao_id &&
+    !l.neutro
+  )
+}
+
+const FILTRO_DA_ABA: Record<Aba, (l: Lancamento) => boolean> = {
+  origem: semOrigem,
+  categoria: semCategoria,
+  subcategoria: semSubcategoria,
 }
 
 export default function PendenciasPage() {
@@ -66,15 +108,28 @@ export default function PendenciasPage() {
   const carregar = useCallback(async () => {
     const { data: userData } = await supabase.auth.getUser()
     const id = userData.user?.id ?? ''
-    const [{ data: lancs }, { data: cts }, { data: crts }, { data: cats }, { data: subs }, { data: perfil }] =
-      await Promise.all([
-        buscarTudo((de, ate) => supabase.from('transacoes').select(CAMPOS).order('id').range(de, ate)),
-        supabase.from('contas').select('id, nome, tipo, ativo').order('nome'),
-        supabase.from('cartoes_credito').select('id, nome, ativo, dia_fechamento, dia_vencimento').order('nome'),
-        supabase.from('categorias').select('id, nome, tipo').order('nome'),
-        supabase.from('subcategorias').select('id, nome, categoria_id').order('nome'),
-        id ? supabase.from('perfis').select('papel').eq('id', id).single() : Promise.resolve({ data: null }),
-      ])
+    const [
+      { data: lancs },
+      { data: cts },
+      { data: crts },
+      { data: cats },
+      { data: subs },
+      { data: perfil },
+    ] = await Promise.all([
+      buscarTudo((de, ate) =>
+        supabase.from('transacoes').select(CAMPOS).order('id').range(de, ate)
+      ),
+      supabase.from('contas').select('id, nome, tipo, ativo').order('nome'),
+      supabase
+        .from('cartoes_credito')
+        .select('id, nome, ativo, dia_fechamento, dia_vencimento')
+        .order('nome'),
+      supabase.from('categorias').select('id, nome, tipo').order('nome'),
+      supabase.from('subcategorias').select('id, nome, categoria_id, grupo_503020').order('nome'),
+      id
+        ? supabase.from('perfis').select('papel').eq('id', id).single()
+        : Promise.resolve({ data: null }),
+    ])
     // O Supabase tipa as junções (categorias, contas…) como listas; aqui vem um objeto só
     setLancamentos(lancs as unknown as Lancamento[])
     setContas((cts ?? []) as Conta[])
@@ -94,14 +149,17 @@ export default function PendenciasPage() {
   }, [carregar])
 
   const pendentes = useMemo(() => {
-    const lista = lancamentos.filter(aba === 'origem' ? semOrigem : semCategoria)
-    return lista.sort((a, b) => b.data.localeCompare(a.data) || a.descricao.localeCompare(b.descricao))
+    const lista = lancamentos.filter(FILTRO_DA_ABA[aba])
+    return lista.sort(
+      (a, b) => b.data.localeCompare(a.data) || a.descricao.localeCompare(b.descricao)
+    )
   }, [lancamentos, aba])
 
   const contagem = useMemo(
     () => ({
       origem: lancamentos.filter(semOrigem).length,
       categoria: lancamentos.filter(semCategoria).length,
+      subcategoria: lancamentos.filter(semSubcategoria).length,
     }),
     [lancamentos]
   )
@@ -124,7 +182,9 @@ export default function PendenciasPage() {
         l.id,
         aba === 'origem'
           ? sugerirOrigem(l, lancamentos, contas, cartoes)
-          : sugerirCategoria(l, lancamentos, categorias, subcategorias)
+          : aba === 'categoria'
+            ? sugerirCategoria(l, lancamentos, categorias, subcategorias)
+            : sugerirSubcategoria(l, lancamentos, subcategorias)
       )
     }
     return mapa
@@ -137,7 +197,7 @@ export default function PendenciasPage() {
   }
 
   const classeAba = (ativa: boolean) =>
-    `min-h-11 flex-1 rounded-lg px-3 text-sm font-semibold transition-colors ${
+    `min-h-12 rounded-lg px-2 py-1.5 text-sm leading-tight font-semibold transition-colors ${
       ativa ? 'bg-primaria text-sobre-cor' : 'text-texto-suave hover:bg-fundo'
     }`
 
@@ -145,34 +205,34 @@ export default function PendenciasPage() {
     <Pagina>
       <CabecalhoPagina
         titulo="Pendências"
-        descricao="Lançamentos sem conta, cartão ou categoria. As sugestões vêm do histórico; nada muda até você salvar."
+        descricao="Lançamentos sem conta, cartão, categoria ou subcategoria. As sugestões vêm do histórico; nada muda até você salvar."
       />
 
-      <div className="mb-4 flex gap-1 rounded-xl border border-borda bg-superficie p-1" role="tablist">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={aba === 'origem'}
-          onClick={() => {
-            setAba('origem')
-            setMensagem('')
-          }}
-          className={classeAba(aba === 'origem')}
-        >
-          Sem conta ou cartão ({contagem.origem})
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={aba === 'categoria'}
-          onClick={() => {
-            setAba('categoria')
-            setMensagem('')
-          }}
-          className={classeAba(aba === 'categoria')}
-        >
-          Sem categoria ({contagem.categoria})
-        </button>
+      <div
+        className="mb-4 grid grid-cols-3 gap-1 rounded-xl border border-borda bg-superficie p-1"
+        role="tablist"
+      >
+        {(
+          [
+            ['origem', 'Sem conta ou cartão'],
+            ['categoria', 'Sem categoria'],
+            ['subcategoria', 'Sem subcategoria'],
+          ] as const
+        ).map(([valor, rotulo]) => (
+          <button
+            key={valor}
+            type="button"
+            role="tab"
+            aria-selected={aba === valor}
+            onClick={() => {
+              setAba(valor)
+              setMensagem('')
+            }}
+            className={classeAba(aba === valor)}
+          >
+            {rotulo} ({contagem[valor]})
+          </button>
+        ))}
       </div>
 
       {mensagem && (
@@ -184,7 +244,15 @@ export default function PendenciasPage() {
       {carregando ? (
         <p className="text-sm text-texto-suave">Carregando...</p>
       ) : pendentes.length === 0 ? (
-        <EstadoVazio titulo="Nenhuma pendência. Todos os lançamentos têm conta e categoria." />
+        <EstadoVazio
+          titulo={
+            aba === 'origem'
+              ? 'Nenhuma pendência. Todos os lançamentos têm conta ou cartão.'
+              : aba === 'categoria'
+                ? 'Nenhuma pendência. Todos os lançamentos têm categoria.'
+                : 'Nenhuma pendência. Todas as despesas têm subcategoria.'
+          }
+        />
       ) : (
         <ul className="space-y-3">
           {pendentes.map((l) => {
@@ -201,7 +269,9 @@ export default function PendenciasPage() {
                 podeEditar={isAdmin || l.dono_id === userId}
                 contas={contas}
                 cartoes={cartoes}
-                categorias={categorias.filter((c) => c.tipo === l.tipo)}
+                categorias={categorias.filter((c) =>
+                  aba === 'subcategoria' ? c.id === l.categoria_id : c.tipo === l.tipo
+                )}
                 subcategorias={subcategorias}
                 faturas={lancamentos}
                 onSalvo={aoSalvar}
@@ -273,7 +343,8 @@ function ItemPendente({
     let alteracao: Partial<Lancamento>
     if (aba === 'origem') {
       const [tipo, id] = escolha.split(':')
-      alteracao = tipo === 'cartao' ? { cartao_id: id, conta_id: null } : { conta_id: id, cartao_id: null }
+      alteracao =
+        tipo === 'cartao' ? { cartao_id: id, conta_id: null } : { conta_id: id, cartao_id: null }
     } else {
       const [categoriaId, subId] = escolha.split('|')
       alteracao = { categoria_id: categoriaId, subcategoria_id: subId || null }
@@ -288,7 +359,19 @@ function ItemPendente({
     onSalvo(ids, alteracao)
   }
 
-  const detalhe = aba === 'origem' ? l.categorias?.nome ?? 'Sem categoria' : l.contas?.nome ?? l.cartoes_credito?.nome ?? 'Sem conta'
+  const detalhe =
+    aba === 'origem'
+      ? (l.categorias?.nome ?? 'Sem categoria')
+      : aba === 'subcategoria'
+        ? `${l.categorias?.nome ?? ''}, ${l.contas?.nome ?? l.cartoes_credito?.nome ?? 'sem conta'}`
+        : (l.contas?.nome ?? l.cartoes_credito?.nome ?? 'Sem conta')
+
+  // Grupo 50/30/20 que a escolha vai dar ao lançamento (abas de categoria)
+  const grupoDe = (s: SugestaoOrigem | SugestaoDeCategoria) => {
+    if ('tipo' in s || !s.subcategoria_id) return null
+    const g = subcategorias.find((x) => x.id === s.subcategoria_id)?.grupo_503020
+    return g ? ROTULO_GRUPO[g] : 'Sem grupo'
+  }
 
   return (
     <li className="cartao p-4">
@@ -308,10 +391,16 @@ function ItemPendente({
       </div>
 
       {!podeEditar ? (
-        <p className="mt-3 text-sm text-texto-suave">Só quem lançou ou o administrador pode corrigir.</p>
+        <p className="mt-3 text-sm text-texto-suave">
+          Só quem lançou ou o administrador pode corrigir.
+        </p>
       ) : (
         <div className="mt-3 space-y-3">
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4" role="radiogroup" aria-label="Sugestões">
+          <div
+            className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4"
+            role="radiogroup"
+            aria-label="Sugestões"
+          >
             {sugestoes.map((s) => {
               const chave = chaveDaSugestao(s)
               const selecionada = escolha === chave && !outra
@@ -333,6 +422,11 @@ function ItemPendente({
                 >
                   <span className="block font-semibold text-texto">{s.nome}</span>
                   <span className="block text-sm text-texto-suave">{s.motivo}</span>
+                  {grupoDe(s) && (
+                    <span className="mt-0.5 block text-xs font-medium text-primaria">
+                      {grupoDe(s)}
+                    </span>
+                  )}
                 </button>
               )
             })}
@@ -345,7 +439,9 @@ function ItemPendente({
                 setEscolha('')
               }}
               className={`min-h-14 rounded-lg border px-3 py-2 text-left font-semibold transition-colors ${
-                outra ? 'border-primaria bg-primaria/10 text-texto' : 'border-borda bg-superficie text-texto hover:bg-fundo'
+                outra
+                  ? 'border-primaria bg-primaria/10 text-texto'
+                  : 'border-borda bg-superficie text-texto hover:bg-fundo'
               }`}
             >
               Outra…
@@ -357,9 +453,21 @@ function ItemPendente({
               className={classeInput}
               value={escolha}
               onChange={(e) => setEscolha(e.target.value)}
-              aria-label={aba === 'origem' ? 'Escolher conta ou cartão' : 'Escolher categoria'}
+              aria-label={
+                aba === 'origem'
+                  ? 'Escolher conta ou cartão'
+                  : aba === 'categoria'
+                    ? 'Escolher categoria'
+                    : 'Escolher subcategoria'
+              }
             >
-              <option value="">{aba === 'origem' ? 'Selecione a conta ou o cartão...' : 'Selecione a categoria...'}</option>
+              <option value="">
+                {aba === 'origem'
+                  ? 'Selecione a conta ou o cartão...'
+                  : aba === 'categoria'
+                    ? 'Selecione a categoria...'
+                    : 'Selecione a subcategoria...'}
+              </option>
               {aba === 'origem' ? (
                 <>
                   <optgroup label="Contas">
@@ -384,7 +492,9 @@ function ItemPendente({
               ) : (
                 categorias.map((c) => (
                   <optgroup key={c.id} label={c.nome}>
-                    <option value={`${c.id}|`}>{c.nome} (sem subcategoria)</option>
+                    {aba === 'categoria' && (
+                      <option value={`${c.id}|`}>{c.nome} (sem subcategoria)</option>
+                    )}
                     {subcategorias
                       .filter((s) => s.categoria_id === c.id)
                       .map((s) => (
@@ -414,7 +524,12 @@ function ItemPendente({
             ) : (
               <span />
             )}
-            <BotaoPrimario type="button" onClick={salvar} disabled={!escolha || salvando} className="min-h-11">
+            <BotaoPrimario
+              type="button"
+              onClick={salvar}
+              disabled={!escolha || salvando}
+              className="min-h-11"
+            >
               {salvando ? 'Salvando...' : 'Salvar'}
             </BotaoPrimario>
           </div>

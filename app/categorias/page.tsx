@@ -26,6 +26,28 @@ type Subcategoria = {
   id: string
   categoria_id: string
   nome: string
+  grupo_503020: string | null
+}
+
+// Grupo da régua 50/30/20; só faz sentido em subcategoria de despesa
+const OPCOES_GRUPO: { valor: string; rotulo: string }[] = [
+  { valor: 'necessidade', rotulo: 'Essenciais' },
+  { valor: 'desejo', rotulo: 'Qualidade de Vida' },
+  { valor: 'investimento', rotulo: 'Futuro' },
+  { valor: 'deducao', rotulo: 'Descontos obrigatórios' },
+]
+const rotuloGrupo = (g: string | null) => OPCOES_GRUPO.find((o) => o.valor === g)?.rotulo ?? 'Sem grupo'
+
+/** Grupo mais usado pelas outras subcategorias da mesma categoria */
+function grupoSugerido(sub: Subcategoria, todas: Subcategoria[]): string | null {
+  const contagem = new Map<string, number>()
+  for (const s of todas) {
+    if (s.categoria_id !== sub.categoria_id || s.id === sub.id || !s.grupo_503020) continue
+    contagem.set(s.grupo_503020, (contagem.get(s.grupo_503020) ?? 0) + 1)
+  }
+  let melhor: string | null = null
+  for (const [g, n] of contagem) if (!melhor || n > (contagem.get(melhor) ?? 0)) melhor = g
+  return melhor
 }
 
 export default function CategoriasPage() {
@@ -50,7 +72,7 @@ export default function CategoriasPage() {
 
     const [{ data: cats }, { data: subs }, { data: perfil }] = await Promise.all([
       supabase.from('categorias').select('id, nome, tipo, natureza').order('nome'),
-      supabase.from('subcategorias').select('id, categoria_id, nome').order('nome'),
+      supabase.from('subcategorias').select('id, categoria_id, nome, grupo_503020').order('nome'),
       userId
         ? supabase.from('perfis').select('papel').eq('id', userId).single()
         : Promise.resolve({ data: null }),
@@ -68,6 +90,20 @@ export default function CategoriasPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     carregar()
   }, [carregar])
+
+  async function definirGrupo(sub: Subcategoria, grupo: string | null) {
+    setMensagem('')
+    const { error } = await supabase.from('subcategorias').update({ grupo_503020: grupo }).eq('id', sub.id)
+    if (error) {
+      setMensagem('Não foi possível mudar o grupo. Tente novamente.')
+      return
+    }
+    setSubcategorias((atual) => atual.map((s) => (s.id === sub.id ? { ...s, grupo_503020: grupo } : s)))
+  }
+
+  const semGrupo = subcategorias.filter(
+    (s) => !s.grupo_503020 && categorias.find((c) => c.id === s.categoria_id)?.tipo === 'despesa'
+  ).length
 
   const categoriasDaAba = useMemo(
     () => categorias.filter((c) => c.tipo === aba),
@@ -205,6 +241,13 @@ export default function CategoriasPage() {
         </p>
       )}
 
+      {aba === 'despesa' && semGrupo > 0 && !carregando && (
+        <p className="mb-4 rounded-lg border border-alerta/30 bg-alerta/10 px-4 py-3 text-sm text-texto">
+          {semGrupo} subcategoria{semGrupo > 1 ? 's' : ''} de despesa sem grupo 50/30/20. Os gastos
+          nelas aparecem como &quot;Sem grupo&quot; na régua do Início e na Calculadora.
+        </p>
+      )}
+
       <div className="mb-5 flex gap-2">
         <button onClick={() => setAba('despesa')} className={classeAba('despesa')}>
           Despesas
@@ -264,12 +307,52 @@ export default function CategoriasPage() {
 
                 {subs.length > 0 && (
                   <ul className="mt-3 space-y-1 border-t border-borda pt-3">
-                    {subs.map((sub) => (
+                    {subs.map((sub) => {
+                      const sugestao = aba === 'despesa' && !sub.grupo_503020 ? grupoSugerido(sub, subcategorias) : null
+                      return (
                       <li
                         key={sub.id}
-                        className="flex items-center justify-between rounded px-2 py-1.5 text-sm hover:bg-fundo"
+                        className="flex flex-wrap items-center justify-between gap-2 rounded px-2 py-1.5 text-sm hover:bg-fundo"
                       >
-                        <span className="text-texto-suave">{sub.nome}</span>
+                        <span className="min-w-0 text-texto-suave">{sub.nome}</span>
+                        <span className="flex flex-wrap items-center gap-2">
+                        {aba === 'despesa' &&
+                          (isAdmin ? (
+                            <>
+                              {sugestao && (
+                                <button
+                                  type="button"
+                                  onClick={() => definirGrupo(sub, sugestao)}
+                                  className="min-h-10 rounded-lg border border-alerta/40 bg-alerta/10 px-2.5 text-xs font-semibold text-alerta"
+                                >
+                                  Usar {rotuloGrupo(sugestao)}
+                                </button>
+                              )}
+                              <select
+                                value={sub.grupo_503020 ?? ''}
+                                onChange={(e) => definirGrupo(sub, e.target.value || null)}
+                                aria-label={`Grupo 50/30/20 de ${sub.nome}`}
+                                className={`min-h-10 rounded-lg border px-2 text-sm ${
+                                  sub.grupo_503020 ? 'border-borda text-texto' : 'border-alerta/50 text-alerta'
+                                }`}
+                              >
+                                <option value="">Sem grupo</option>
+                                {OPCOES_GRUPO.map((o) => (
+                                  <option key={o.valor} value={o.valor}>
+                                    {o.rotulo}
+                                  </option>
+                                ))}
+                              </select>
+                            </>
+                          ) : (
+                            <span
+                              className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                                sub.grupo_503020 ? 'bg-fundo text-texto-suave' : 'bg-alerta/12 text-alerta'
+                              }`}
+                            >
+                              {rotuloGrupo(sub.grupo_503020)}
+                            </span>
+                          ))}
                         {isAdmin && (
                           <span className="flex items-center gap-3">
                             <button
@@ -287,8 +370,10 @@ export default function CategoriasPage() {
                             </button>
                           </span>
                         )}
+                        </span>
                       </li>
-                    ))}
+                      )
+                    })}
                   </ul>
                 )}
               </div>

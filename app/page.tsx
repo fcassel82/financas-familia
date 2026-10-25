@@ -99,6 +99,7 @@ export default function InicioPage() {
         { data: transacoesRegua },
         { count: semOrigem },
         { count: semCategoria },
+        { count: semSubcategoria },
       ] = await Promise.all([
         supabase.from('contas').select('id, nome, cor, saldo_inicial, tipo').order('nome'),
         buscarTudo((de, ate) =>
@@ -158,6 +159,16 @@ export default function InicioPage() {
           .is('transferencia_id', null)
           .is('fatura_cartao_id', null)
           .eq('neutro', false),
+        supabase
+          .from('transacoes')
+          .select('id', { count: 'exact', head: true })
+          .eq('tipo', 'despesa')
+          .eq('status', 'pago')
+          .not('categoria_id', 'is', null)
+          .is('subcategoria_id', null)
+          .is('transferencia_id', null)
+          .is('fatura_cartao_id', null)
+          .eq('neutro', false),
       ])
 
       const lista = (contasData ?? []) as Conta[]
@@ -173,7 +184,7 @@ export default function InicioPage() {
 
       setDoMes((movimentosMes ?? []) as unknown as Movimento[])
       setLembretes((pendencias ?? []) as Pendencia[])
-      setQtdPendencias((semOrigem ?? 0) + (semCategoria ?? 0))
+      setQtdPendencias((semOrigem ?? 0) + (semCategoria ?? 0) + (semSubcategoria ?? 0))
 
       const subcategoriaMap = new Map(
         ((subcategorias ?? []) as Subcategoria[]).map((s) => [s.id, s])
@@ -295,7 +306,7 @@ export default function InicioPage() {
             >
               <span className="text-texto">
                 <strong className="font-semibold">{qtdPendencias}</strong>{' '}
-                {qtdPendencias === 1 ? 'pendência' : 'pendências'} de conta ou categoria para classificar
+                {qtdPendencias === 1 ? 'pendência' : 'pendências'} de classificação (conta, categoria ou subcategoria)
               </span>
               <span className="flex shrink-0 items-center gap-1 text-sm font-semibold text-alerta">
                 Resolver <Seta />
