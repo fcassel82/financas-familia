@@ -1,6 +1,8 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import {
   Bar,
   BarChart,
@@ -22,9 +24,11 @@ import {
   deslocarMes,
   hojeISO,
   limitesCompetencia,
+  limitesDoMes,
   moeda,
   rotuloMesCurto,
 } from '@/lib/formato'
+import { linkResumo, type FiltroResumo } from '@/lib/resumo'
 import {
   BotaoPrimario,
   BotaoSecundario,
@@ -35,6 +39,7 @@ import {
   Mensagem,
   Modal,
   Pagina,
+  Seta,
   SeletorMultiplo,
   classeInput,
 } from '@/components/ui'
@@ -49,6 +54,8 @@ type TransacaoResumo = {
   dono_id: string
   categoria_id: string | null
   subcategoria_id: string | null
+  conta_id: string | null
+  cartao_id: string | null
   categorias: { nome: string } | null
   subcategorias: { nome: string } | null
   contas: { nome: string } | null
@@ -168,18 +175,26 @@ function CartaoKpi({
   titulo,
   valor,
   cor,
+  href,
 }: {
   titulo: string
   valor: string
   cor: string
+  href: string
 }) {
   return (
-    <div className="cartao p-3 sm:p-4">
-      <p className="text-xs font-medium leading-tight text-texto-suave">{titulo}</p>
-      <p className="mt-1 text-lg font-bold leading-tight sm:text-2xl" style={{ color: cor }}>
-        {valor}
-      </p>
-    </div>
+    <Link
+      href={href}
+      className="cartao flex items-center justify-between gap-2 p-3 transition-colors hover:border-primaria/40 sm:p-4"
+    >
+      <span className="min-w-0">
+        <span className="block text-xs font-medium leading-tight text-texto-suave">{titulo}</span>
+        <span className="mt-1 block text-lg font-bold leading-tight sm:text-2xl" style={{ color: cor }}>
+          {valor}
+        </span>
+      </span>
+      <Seta />
+    </Link>
   )
 }
 
@@ -208,29 +223,32 @@ function BlocoGrafico({
   )
 }
 
+type GrupoDespesa = { id: string; nome: string; valor: number; cor: string; ids: string[] }
+
+/** Agrupa as despesas por id (o Resumo precisa do id para abrir o grupo) */
 function agruparDespesas(
   transacoes: TransacaoResumo[],
-  chaveDe: (t: TransacaoResumo) => string,
-  rotuloSemValor: string
-) {
-  const totais = new Map<string, number>()
+  chaveDe: (t: TransacaoResumo) => { id: string; nome: string }
+): GrupoDespesa[] {
+  const totais = new Map<string, { id: string; nome: string; valor: number }>()
   for (const t of transacoes) {
     if (t.tipo !== 'despesa') continue
-    const chave = chaveDe(t) || rotuloSemValor
-    totais.set(chave, (totais.get(chave) ?? 0) + Number(t.valor))
+    const { id, nome } = chaveDe(t)
+    const atual = totais.get(id) ?? { id, nome, valor: 0 }
+    atual.valor += Number(t.valor)
+    totais.set(id, atual)
   }
-  const ordenado = Array.from(totais.entries())
-    .map(([nome, valor]) => ({ nome, valor }))
-    .sort((a, b) => b.valor - a.valor)
+  const ordenado = Array.from(totais.values()).sort((a, b) => b.valor - a.valor)
 
-  const principais = ordenado.slice(0, 6)
-  const restante = ordenado.slice(6).reduce((soma, c) => soma + c.valor, 0)
-  if (restante > 0) principais.push({ nome: 'Outras', valor: restante })
-
-  return principais.map((c, i) => ({
-    ...c,
-    cor: c.nome === 'Outras' ? COR_OUTRAS : CORES_CATEGORICAS[i % CORES_CATEGORICAS.length],
-  }))
+  const principais: GrupoDespesa[] = ordenado
+    .slice(0, 6)
+    .map((c, i) => ({ ...c, ids: [c.id], cor: CORES_CATEGORICAS[i % CORES_CATEGORICAS.length] }))
+  const resto = ordenado.slice(6)
+  const restante = resto.reduce((soma, c) => soma + c.valor, 0)
+  if (restante > 0) {
+    principais.push({ id: 'outras', nome: 'Outras', valor: restante, cor: COR_OUTRAS, ids: resto.map((c) => c.id) })
+  }
+  return principais
 }
 
 export default function DashboardPage() {
@@ -327,7 +345,7 @@ export default function DashboardPage() {
     let query = supabase
       .from('transacoes')
       .select(
-        'id, data, descricao, valor, tipo, escopo, dono_id, categoria_id, subcategoria_id, categorias(nome), subcategorias(nome), contas(nome), cartoes_credito!cartao_id(nome)'
+        'id, data, descricao, valor, tipo, escopo, dono_id, categoria_id, subcategoria_id, conta_id, cartao_id, categorias(nome), subcategorias(nome), contas(nome), cartoes_credito!cartao_id(nome)'
       )
       // Só o que já foi efetivado: contas a pagar em aberto não são gasto realizado
       .eq('status', 'pago')
@@ -464,6 +482,7 @@ export default function DashboardPage() {
       else bucket.despesas += Number(t.valor)
     }
     return mesesChaves.map((chave) => ({
+      chave,
       mes: rotuloMesCurto(chave),
       Receitas: porMes.get(chave)!.receitas,
       Despesas: porMes.get(chave)!.despesas,
@@ -471,16 +490,22 @@ export default function DashboardPage() {
   }, [transacoes, mesesChaves, periodo])
 
   const gastosPorCategoria = useMemo(
-    () => agruparDespesas(transacoes, (t) => t.categorias?.nome ?? '', 'Sem categoria'),
+    () =>
+      agruparDespesas(transacoes, (t) => ({
+        id: t.categoria_id ?? SEM_CATEGORIA_ID,
+        nome: t.categorias?.nome ?? 'Sem categoria',
+      })),
     [transacoes]
   )
 
   const gastosPorOrigem = useMemo(
     () =>
-      agruparDespesas(
-        transacoes,
-        (t) => t.contas?.nome ?? t.cartoes_credito?.nome ?? '',
-        'Não informado'
+      agruparDespesas(transacoes, (t) =>
+        t.conta_id
+          ? { id: `conta:${t.conta_id}`, nome: t.contas?.nome ?? 'Conta' }
+          : t.cartao_id
+            ? { id: `cartao:${t.cartao_id}`, nome: t.cartoes_credito?.nome ?? 'Cartão' }
+            : { id: 'nenhum', nome: 'Não informado' }
       ),
     [transacoes]
   )
@@ -506,6 +531,49 @@ export default function DashboardPage() {
     .filter((t) => t.tipo === 'despesa')
     .reduce((soma, t) => soma + Number(t.valor), 0)
   const saldo = totalReceitas - totalDespesas
+
+  // Tocar numa soma abre o Resumo com o mesmo período e filtros desta tela
+  const router = useRouter()
+  const filtroBase: FiltroResumo = {
+    // Mesmas datas da consulta de carregar()
+    de: periodo === 'personalizado' ? dataInicioCustom : limitesCompetencia(mesesChaves[0]).inicio,
+    ate: periodo === 'personalizado' ? dataFimCustom : hojeISO(),
+    regra: 'resultado',
+    escopo: escopoFiltro === 'todos' ? undefined : escopoFiltro,
+    dono: isAdmin && membroFiltro ? membroFiltro : undefined,
+    categorias: categoriasFiltro.length > 0 ? categoriasFiltro : undefined,
+    subcategorias: subcategoriasFiltro.length > 0 ? subcategoriasFiltro : undefined,
+  }
+
+  function linkCategoria(c: GrupoDespesa): string {
+    if (c.id === 'outras') {
+      return linkResumo({ ...filtroBase, tipo: 'despesa', categorias: c.ids, titulo: 'Outras categorias' })
+    }
+    return linkResumo({
+      ...filtroBase,
+      tipo: 'despesa',
+      categoria: c.id === SEM_CATEGORIA_ID ? 'sem' : c.id,
+      titulo: c.nome,
+    })
+  }
+
+  function linkOrigem(c: GrupoDespesa): string | null {
+    const [tipoOrigem, id] = c.id.split(':')
+    if (tipoOrigem === 'conta') return linkResumo({ ...filtroBase, tipo: 'despesa', conta: id, titulo: c.nome })
+    if (tipoOrigem === 'cartao') return linkResumo({ ...filtroBase, tipo: 'despesa', cartao: id, titulo: c.nome })
+    return null
+  }
+
+  function linkDoMes(chave: string, tipo: 'receita' | 'despesa'): string {
+    const mes = periodo === 'personalizado' ? limitesDoMes(chave) : limitesCompetencia(chave)
+    return linkResumo({
+      ...filtroBase,
+      de: mes.inicio > filtroBase.de ? mes.inicio : filtroBase.de,
+      ate: mes.fim < filtroBase.ate ? mes.fim : filtroBase.ate,
+      tipo,
+      titulo: `${tipo === 'receita' ? 'Receitas' : 'Despesas'} de ${rotuloMesCurto(chave)}`,
+    })
+  }
 
   const classeBotao = (ativo: boolean) =>
     `shrink-0 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
@@ -630,10 +698,30 @@ export default function DashboardPage() {
         <>
           {/* Resumo */}
           <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <CartaoKpi titulo="Receitas" valor={moeda(totalReceitas)} cor={COR_RECEITA} />
-            <CartaoKpi titulo="Despesas" valor={moeda(totalDespesas)} cor={COR_DESPESA} />
-            <CartaoKpi titulo="Saldo" valor={moeda(saldo)} cor={saldo >= 0 ? 'var(--texto)' : COR_DESPESA} />
-            <CartaoKpi titulo="Lançamentos" valor={String(transacoes.length)} cor="var(--texto)" />
+            <CartaoKpi
+              titulo="Receitas"
+              valor={moeda(totalReceitas)}
+              cor={COR_RECEITA}
+              href={linkResumo({ ...filtroBase, tipo: 'receita', titulo: 'Receitas do período' })}
+            />
+            <CartaoKpi
+              titulo="Despesas"
+              valor={moeda(totalDespesas)}
+              cor={COR_DESPESA}
+              href={linkResumo({ ...filtroBase, tipo: 'despesa', titulo: 'Despesas do período' })}
+            />
+            <CartaoKpi
+              titulo="Saldo"
+              valor={moeda(saldo)}
+              cor={saldo >= 0 ? 'var(--texto)' : COR_DESPESA}
+              href={linkResumo({ ...filtroBase, titulo: 'Lançamentos do período' })}
+            />
+            <CartaoKpi
+              titulo="Lançamentos"
+              valor={String(transacoes.length)}
+              cor="var(--texto)"
+              href={linkResumo({ ...filtroBase, titulo: 'Lançamentos do período' })}
+            />
           </div>
 
           {/* Lançamentos do filtro de categoria/subcategoria — pra investigar e corrigir
@@ -693,24 +781,32 @@ export default function DashboardPage() {
                 Nenhuma despesa neste período.
               </p>
             ) : (
-              <ul className="space-y-3">
+              <ul className="space-y-1.5">
                 {gastosPorCategoria.map((c) => {
                   const fatia = totalDespesas > 0 ? (c.valor / totalDespesas) * 100 : 0
                   return (
-                    <li key={c.nome}>
-                      <div className="mb-1 flex items-baseline justify-between gap-3 text-sm">
-                        <span className="min-w-0 truncate text-texto">{c.nome}</span>
-                        <span className="flex shrink-0 items-baseline gap-2">
-                          <span className="text-xs text-texto-suave">{fatia.toFixed(1)}%</span>
-                          <span className="font-semibold text-texto">{moeda(c.valor)}</span>
+                    <li key={c.id}>
+                      <Link
+                        href={linkCategoria(c)}
+                        className="-mx-2 flex items-center gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-fundo"
+                      >
+                        <span className="min-w-0 flex-1">
+                          <span className="mb-1 flex items-baseline justify-between gap-3 text-sm">
+                            <span className="min-w-0 truncate text-texto">{c.nome}</span>
+                            <span className="flex shrink-0 items-baseline gap-2">
+                              <span className="text-xs text-texto-suave">{fatia.toFixed(1)}%</span>
+                              <span className="font-semibold text-texto">{moeda(c.valor)}</span>
+                            </span>
+                          </span>
+                          <span className="block h-2 overflow-hidden rounded-full bg-fundo">
+                            <span
+                              className="block h-full rounded-full"
+                              style={{ width: `${fatia}%`, backgroundColor: c.cor }}
+                            />
+                          </span>
                         </span>
-                      </div>
-                      <div className="h-2 overflow-hidden rounded-full bg-fundo">
-                        <div
-                          className="h-full rounded-full"
-                          style={{ width: `${fatia}%`, backgroundColor: c.cor }}
-                        />
-                      </div>
+                        <Seta />
+                      </Link>
                     </li>
                   )
                 })}
@@ -735,7 +831,14 @@ export default function DashboardPage() {
                     paddingAngle={2}
                   >
                     {gastosPorCategoria.map((c) => (
-                      <Cell key={c.nome} fill={c.cor} stroke="var(--superficie)" strokeWidth={2} />
+                      <Cell
+                        key={c.id}
+                        fill={c.cor}
+                        stroke="var(--superficie)"
+                        strokeWidth={2}
+                        cursor="pointer"
+                        onClick={() => router.push(linkCategoria(c))}
+                      />
                     ))}
                   </Pie>
                   <Tooltip content={<TooltipMoeda />} />
@@ -758,9 +861,19 @@ export default function DashboardPage() {
                     outerRadius="72%"
                     paddingAngle={2}
                   >
-                    {gastosPorOrigem.map((c) => (
-                      <Cell key={c.nome} fill={c.cor} stroke="var(--superficie)" strokeWidth={2} />
-                    ))}
+                    {gastosPorOrigem.map((c) => {
+                      const destino = linkOrigem(c)
+                      return (
+                        <Cell
+                          key={c.id}
+                          fill={c.cor}
+                          stroke="var(--superficie)"
+                          strokeWidth={2}
+                          cursor={destino ? 'pointer' : undefined}
+                          onClick={destino ? () => router.push(destino) : undefined}
+                        />
+                      )
+                    })}
                   </Pie>
                   <Tooltip content={<TooltipMoeda />} />
                   <Legend verticalAlign="bottom" height={48} wrapperStyle={legendaRodape} />
@@ -787,7 +900,21 @@ export default function DashboardPage() {
                     <Tooltip content={<TooltipMoeda />} cursor={{ fill: 'var(--fundo)' }} />
                     <Bar dataKey="valor" name="Gasto" radius={[0, 4, 4, 0]} barSize={28}>
                       {familiarVsPessoal.map((f) => (
-                        <Cell key={f.escopo} fill={f.cor} />
+                        <Cell
+                          key={f.escopo}
+                          fill={f.cor}
+                          cursor="pointer"
+                          onClick={() =>
+                            router.push(
+                              linkResumo({
+                                ...filtroBase,
+                                tipo: 'despesa',
+                                escopo: f.escopo === 'Familiar' ? 'familiar' : 'pessoal',
+                                titulo: `Gastos ${f.escopo === 'Familiar' ? 'familiares' : 'pessoais'}`,
+                              })
+                            )
+                          }
+                        />
                       ))}
                     </Bar>
                   </BarChart>
@@ -811,8 +938,20 @@ export default function DashboardPage() {
                   />
                   <Tooltip content={<TooltipMoeda />} cursor={{ fill: 'var(--fundo)' }} />
                   <Legend wrapperStyle={legendaRodape} />
-                  <Bar dataKey="Receitas" fill={COR_RECEITA} radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="Despesas" fill={COR_DESPESA} radius={[4, 4, 0, 0]} />
+                  <Bar
+                    dataKey="Receitas"
+                    fill={COR_RECEITA}
+                    radius={[4, 4, 0, 0]}
+                    cursor="pointer"
+                    onClick={(_, i) => router.push(linkDoMes(evolucaoMensal[i].chave, 'receita'))}
+                  />
+                  <Bar
+                    dataKey="Despesas"
+                    fill={COR_DESPESA}
+                    radius={[4, 4, 0, 0]}
+                    cursor="pointer"
+                    onClick={(_, i) => router.push(linkDoMes(evolucaoMensal[i].chave, 'despesa'))}
+                  />
                 </BarChart>
               </ResponsiveContainer>
             </BlocoGrafico>

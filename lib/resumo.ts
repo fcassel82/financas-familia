@@ -22,9 +22,12 @@ export type FiltroResumo = {
   categoria?: string
   subcategoria?: string
   categorias?: string[]
+  subcategorias?: string[]
   grupo?: GrupoResumo
   escopo?: 'familiar' | 'pessoal'
   membros?: string[]
+  /** Quem lançou (dono_id), como o filtro de membro dos Relatórios */
+  dono?: string
   conta?: string
   cartao?: string
   movimento?: MovimentoResumo
@@ -66,6 +69,7 @@ export const CAMPOS_LANCAMENTO_RESUMO =
 
 // Marcadores já usados pelos filtros de Relatórios e da Calculadora
 export const SEM_CATEGORIA = '__sem_categoria__'
+export const SEM_SUBCATEGORIA = '__sem_subcategoria__'
 export const FAMILIAR = '__familiar__'
 
 const REGRAS: RegraResumo[] = ['resultado', '503020', 'conta']
@@ -90,9 +94,11 @@ export function linkResumo(f: FiltroResumo): string {
   if (f.categoria) p.set('categoria', f.categoria)
   if (f.subcategoria) p.set('subcategoria', f.subcategoria)
   if (f.categorias?.length) p.set('categorias', f.categorias.join(','))
+  if (f.subcategorias?.length) p.set('subcategorias', f.subcategorias.join(','))
   if (f.grupo) p.set('grupo', f.grupo)
   if (f.escopo) p.set('escopo', f.escopo)
   if (f.membros?.length) p.set('membros', f.membros.join(','))
+  if (f.dono) p.set('dono', f.dono)
   if (f.conta) p.set('conta', f.conta)
   if (f.cartao) p.set('cartao', f.cartao)
   if (f.movimento) p.set('movimento', f.movimento)
@@ -111,12 +117,15 @@ export function lerFiltroResumo(p: URLSearchParams): FiltroResumo | null {
   if (p.get('subcategoria')) f.subcategoria = p.get('subcategoria')!
   const categorias = lista(p.get('categorias'))
   if (categorias) f.categorias = categorias
+  const subcategorias = lista(p.get('subcategorias'))
+  if (subcategorias) f.subcategorias = subcategorias
   const grupo = escolher(p.get('grupo'), GRUPOS)
   if (grupo) f.grupo = grupo
   const escopo = escolher(p.get('escopo'), ['familiar', 'pessoal'] as const)
   if (escopo) f.escopo = escopo
   const membros = lista(p.get('membros'))
   if (membros) f.membros = membros
+  if (p.get('dono')) f.dono = p.get('dono')!
   if (p.get('conta')) f.conta = p.get('conta')!
   if (p.get('cartao')) f.cartao = p.get('cartao')!
   const movimento = escolher(p.get('movimento'), MOVIMENTOS)
@@ -166,6 +175,9 @@ export function entraNoResumo(l: LancamentoResumo, f: FiltroResumo, ctx: Context
   )
     return false
   if (f.categorias && !f.categorias.includes(l.categoria_id ?? SEM_CATEGORIA)) return false
+  if (f.subcategorias && !f.subcategorias.includes(l.subcategoria_id ?? SEM_SUBCATEGORIA))
+    return false
+  if (f.dono && l.dono_id !== f.dono) return false
   if (f.escopo && l.escopo !== f.escopo) return false
   if (f.membros) {
     const quem = l.escopo === 'familiar' ? FAMILIAR : l.dono_id

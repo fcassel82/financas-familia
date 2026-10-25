@@ -58,6 +58,8 @@ describe('linkResumo e lerFiltroResumo', () => {
       tipo: 'despesa',
       categoria: 'sem',
       categorias: ['a', 'b'],
+      subcategorias: ['s1', '__sem_subcategoria__'],
+      dono: 'gisa',
       grupo: 'investimento',
       escopo: 'familiar',
       membros: ['fred', '__familiar__'],
@@ -112,6 +114,14 @@ describe('entraNoResumo', () => {
     expect(entraNoResumo(lanc({}), f, ctx)).toBe(true)
     expect(entraNoResumo(lanc({ categoria_id: null }), f, ctx)).toBe(true)
     expect(entraNoResumo(lanc({ categoria_id: 'lazer' }), f, ctx)).toBe(false)
+  })
+
+  it('várias subcategorias e quem lançou, como nos Relatórios', () => {
+    const f: FiltroResumo = { ...base, subcategorias: ['super', '__sem_subcategoria__'], dono: 'fred' }
+    expect(entraNoResumo(lanc({}), f, ctx)).toBe(true)
+    expect(entraNoResumo(lanc({ subcategoria_id: null }), f, ctx)).toBe(true)
+    expect(entraNoResumo(lanc({ subcategoria_id: 'cinema' }), f, ctx)).toBe(false)
+    expect(entraNoResumo(lanc({ dono_id: 'gisa' }), f, ctx)).toBe(false)
   })
 
   it('grupo investimento inclui a aplicação e não o resgate', () => {
