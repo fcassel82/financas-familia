@@ -234,7 +234,7 @@ function ConteudoResumo() {
         <EstadoVazio titulo="Nenhum lançamento encontrado para este filtro." />
       ) : (
         <div className="grid gap-6 lg:grid-cols-3">
-          <div className="space-y-6 lg:col-span-1">
+          <div className="min-w-0 space-y-6 lg:col-span-1">
             <section className="cartao p-4" aria-label="Totais">
               <p className="text-sm text-texto-suave">Total</p>
               <p className={`text-3xl font-extrabold tracking-tight ${corTotal}`}>
@@ -276,7 +276,7 @@ function ConteudoResumo() {
             )}
           </div>
 
-          <section className="space-y-3 lg:col-span-2" aria-label="Lançamentos">
+          <section className="min-w-0 space-y-3 lg:col-span-2" aria-label="Lançamentos">
             {porDia.map(([dia, lista]) => (
               <div key={dia}>
                 <div className="flex items-baseline justify-between px-1 pb-1 text-sm font-medium text-texto-suave">
