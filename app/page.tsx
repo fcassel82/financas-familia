@@ -29,7 +29,8 @@ import {
   type TransacaoCalc,
 } from '@/lib/regra503020'
 import { IconeBanco, IconeGrafico, IconeImportar, IconeMais } from '@/components/Icones'
-import { EstadoVazio, Pagina } from '@/components/ui'
+import { EstadoVazio, LinhaLink, Pagina, Seta } from '@/components/ui'
+import { linkResumo } from '@/lib/resumo'
 
 type Pendencia = {
   id: string
@@ -223,9 +224,32 @@ export default function InicioPage() {
           <section aria-label="Resumo do mês">
             <p className="text-lg leading-snug text-texto">
               Neste mês entraram{' '}
-              <strong className="font-bold whitespace-nowrap text-receita">{moeda(receitasMes)}</strong>{' '}
+              <Link
+                href={linkResumo({
+                  de: inicioMes,
+                  ate: fimMes,
+                  regra: 'resultado',
+                  tipo: 'receita',
+                  titulo: 'Entradas do mês',
+                })}
+                className="font-bold whitespace-nowrap text-receita underline decoration-dotted underline-offset-4"
+              >
+                {moeda(receitasMes)}
+              </Link>{' '}
               e saíram{' '}
-              <strong className="font-bold whitespace-nowrap text-despesa">{moeda(despesasMes)}</strong>.
+              <Link
+                href={linkResumo({
+                  de: inicioMes,
+                  ate: fimMes,
+                  regra: 'resultado',
+                  tipo: 'despesa',
+                  titulo: 'Saídas do mês',
+                })}
+                className="font-bold whitespace-nowrap text-despesa underline decoration-dotted underline-offset-4"
+              >
+                {moeda(despesasMes)}
+              </Link>
+              .
             </p>
             <p className="mt-2 flex flex-wrap items-baseline gap-x-2">
               <span className="text-sm text-texto-suave">
@@ -244,7 +268,7 @@ export default function InicioPage() {
             </p>
           </section>
 
-          <ReguaMes resultado={regua} />
+          <ReguaMes resultado={regua} de={inicioMes} ate={fimMes} />
 
           {/* Contas a vencer */}
           <section className="cartao p-4">
@@ -266,7 +290,10 @@ export default function InicioPage() {
               <>
                 <ul className="divide-y divide-borda">
                   {lembretes.slice(0, 5).map((p) => (
-                    <li key={p.id} className="flex min-h-14 items-center justify-between gap-3 py-2">
+                    <li
+                      key={p.id}
+                      className="flex min-h-14 items-center justify-between gap-3 py-2"
+                    >
                       <div className="min-w-0">
                         <p className="truncate font-medium text-texto">{p.descricao}</p>
                         <span className={`mt-1 ${classeChipVencimento(p.data_vencimento)}`}>
@@ -365,23 +392,25 @@ export default function InicioPage() {
               <>
                 <ul className="divide-y divide-borda">
                   {contas.map((c) => (
-                    <li key={c.id} className="flex min-h-12 items-center justify-between gap-2 py-1.5">
-                      <span className="flex min-w-0 items-center gap-2.5">
-                        <span
-                          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-white"
-                          style={{ backgroundColor: c.cor ?? '#2a78d6' }}
-                        >
-                          <IconeBanco className="h-3.5 w-3.5" />
+                    <li key={c.id}>
+                      <LinhaLink href={`/extrato?conta=${c.id}`} className="min-h-12">
+                        <span className="flex min-w-0 items-center gap-2.5">
+                          <span
+                            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-white"
+                            style={{ backgroundColor: c.cor ?? '#2a78d6' }}
+                          >
+                            <IconeBanco className="h-3.5 w-3.5" />
+                          </span>
+                          <span className="truncate text-texto">{c.nome}</span>
                         </span>
-                        <span className="truncate text-texto">{c.nome}</span>
-                      </span>
-                      <span
-                        className={`whitespace-nowrap font-semibold ${
-                          (saldos[c.id] ?? 0) >= 0 ? 'text-texto' : 'text-despesa'
-                        }`}
-                      >
-                        {moeda(saldos[c.id] ?? 0)}
-                      </span>
+                        <span
+                          className={`whitespace-nowrap font-semibold ${
+                            (saldos[c.id] ?? 0) >= 0 ? 'text-texto' : 'text-despesa'
+                          }`}
+                        >
+                          {moeda(saldos[c.id] ?? 0)}
+                        </span>
+                      </LinhaLink>
                     </li>
                   ))}
                 </ul>
@@ -435,7 +464,15 @@ export default function InicioPage() {
  * Régua do mês: quanto da renda líquida foi para Essenciais, Qualidade de Vida
  * e Futuro, com as marcas de 50% e 80% (50 + 30) para comparar com a meta.
  */
-function ReguaMes({ resultado }: { resultado: Resultado | null }) {
+function ReguaMes({
+  resultado,
+  de,
+  ate,
+}: {
+  resultado: Resultado | null
+  de: string
+  ate: string
+}) {
   if (!resultado) return null
   const base = resultado.rendaLiquida
 
@@ -464,8 +501,7 @@ function ReguaMes({ resultado }: { resultado: Resultado | null }) {
 
   const perc = (valor: number) => (valor / base) * 100
   const percNaoClassificado = perc(resultado.naoClassificado)
-  const somaPerc =
-    GRUPOS.reduce((s, g) => s + perc(resultado.buckets[g]), 0) + percNaoClassificado
+  const somaPerc = GRUPOS.reduce((s, g) => s + perc(resultado.buckets[g]), 0) + percNaoClassificado
   // Se o mês gastou mais que a renda, a régua encolhe para caber tudo
   const escala = Math.max(100, somaPerc)
   const largura = (p: number) => `${(p / escala) * 100}%`
@@ -495,7 +531,10 @@ function ReguaMes({ resultado }: { resultado: Resultado | null }) {
             />
           ))}
           {resultado.naoClassificado > 0 && (
-            <span className="listras-sem-grupo block h-full" style={{ width: largura(percNaoClassificado) }} />
+            <span
+              className="listras-sem-grupo block h-full"
+              style={{ width: largura(percNaoClassificado) }}
+            />
           )}
         </div>
         {[50, 80].map((marco) => (
@@ -505,7 +544,9 @@ function ReguaMes({ resultado }: { resultado: Resultado | null }) {
             className="absolute top-0 -bottom-1 border-l-2 border-dashed border-texto"
             style={{ left: largura(marco) }}
           >
-            <span className="absolute -top-0.5 left-1 text-xs font-semibold text-texto-suave">{marco}%</span>
+            <span className="absolute -top-0.5 left-1 text-xs font-semibold text-texto-suave">
+              {marco}%
+            </span>
           </span>
         ))}
       </div>
@@ -520,38 +561,59 @@ function ReguaMes({ resultado }: { resultado: Resultado | null }) {
           const textoSituacao =
             g === 'investimento' ? (ok ? 'na meta' : 'abaixo') : ok ? 'dentro' : 'acima'
           return (
-            <li
-              key={g}
-              className="grid grid-cols-[0.75rem_1fr_auto] items-center gap-x-2.5 gap-y-0.5 py-2.5"
-            >
-              <span className="h-3 w-3 rounded-sm" style={{ backgroundColor: COR_GRUPO[g] }} />
-              <span className="font-semibold text-texto">{ROTULO_GRUPO[g]}</span>
-              <span className="text-right font-semibold text-texto">{moeda(resultado.buckets[g])}</span>
-              <span className="col-start-2 col-end-4 flex items-center justify-between gap-2 text-sm text-texto-suave">
-                <span>
-                  {porcento(p)} da renda, {textoMeta}
+            <li key={g}>
+              <Link
+                href={linkResumo({ de, ate, regra: '503020', grupo: g, titulo: ROTULO_GRUPO[g] })}
+                className="-mx-2 grid grid-cols-[0.75rem_1fr_auto_auto] items-center gap-x-2.5 gap-y-0.5 rounded-lg px-2 py-2.5 transition-colors hover:bg-fundo"
+              >
+                <span className="h-3 w-3 rounded-sm" style={{ backgroundColor: COR_GRUPO[g] }} />
+                <span className="font-semibold text-texto">{ROTULO_GRUPO[g]}</span>
+                <span className="text-right font-semibold text-texto">
+                  {moeda(resultado.buckets[g])}
                 </span>
-                <span
-                  className={`shrink-0 rounded-full px-2.5 py-0.5 text-sm font-semibold ${
-                    ok ? 'bg-fundo text-texto-suave' : 'bg-alerta/12 text-alerta'
-                  }`}
-                >
-                  {textoSituacao}
+                <span className="row-span-2 self-center">
+                  <Seta />
                 </span>
-              </span>
+                <span className="col-start-2 col-end-4 flex items-center justify-between gap-2 text-sm text-texto-suave">
+                  <span>
+                    {porcento(p)} da renda, {textoMeta}
+                  </span>
+                  <span
+                    className={`shrink-0 rounded-full px-2.5 py-0.5 text-sm font-semibold ${
+                      ok ? 'bg-fundo text-texto-suave' : 'bg-alerta/12 text-alerta'
+                    }`}
+                  >
+                    {textoSituacao}
+                  </span>
+                </span>
+              </Link>
             </li>
           )
         })}
         {resultado.naoClassificado > 0 && (
-          <li className="grid grid-cols-[0.75rem_1fr_auto] items-center gap-x-2.5 gap-y-0.5 py-2.5">
-            <span className="listras-sem-grupo h-3 w-3 rounded-sm" />
-            <span className="font-semibold text-texto">Sem grupo</span>
-            <span className="text-right font-semibold text-texto">
-              {moeda(resultado.naoClassificado)}
-            </span>
-            <span className="col-start-2 col-end-4 text-sm text-texto-suave">
-              {porcento(percNaoClassificado)} da renda em subcategorias ainda sem grupo 50/30/20
-            </span>
+          <li>
+            <Link
+              href={linkResumo({
+                de,
+                ate,
+                regra: '503020',
+                grupo: 'sem',
+                titulo: 'Sem grupo 50/30/20',
+              })}
+              className="-mx-2 grid grid-cols-[0.75rem_1fr_auto_auto] items-center gap-x-2.5 gap-y-0.5 rounded-lg px-2 py-2.5 transition-colors hover:bg-fundo"
+            >
+              <span className="listras-sem-grupo h-3 w-3 rounded-sm" />
+              <span className="font-semibold text-texto">Sem grupo</span>
+              <span className="text-right font-semibold text-texto">
+                {moeda(resultado.naoClassificado)}
+              </span>
+              <span className="row-span-2 self-center">
+                <Seta />
+              </span>
+              <span className="col-start-2 col-end-4 text-sm text-texto-suave">
+                {porcento(percNaoClassificado)} da renda em subcategorias ainda sem grupo 50/30/20
+              </span>
+            </Link>
           </li>
         )}
       </ul>
