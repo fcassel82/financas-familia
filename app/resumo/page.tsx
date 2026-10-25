@@ -185,7 +185,9 @@ function ConteudoResumo() {
     filtro.cartao ? (cartoes.find((c) => c.id === filtro.cartao)?.nome ?? null) : null,
     filtro.movimento ? ROTULO_MOVIMENTO[filtro.movimento] : null,
     filtro.membros ? 'Filtro de quem' : null,
-    filtro.categorias ? `${filtro.categorias.length} categoria${filtro.categorias.length > 1 ? 's' : ''}` : null,
+    filtro.categorias
+      ? `${filtro.categorias.length} categoria${filtro.categorias.length > 1 ? 's' : ''}`
+      : null,
   ].filter((e): e is string => !!e && e !== titulo)
 
   const aqui = `${pathname}?${busca}`
@@ -215,7 +217,10 @@ function ConteudoResumo() {
         {etiquetas.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-1.5">
             {etiquetas.map((e) => (
-              <span key={e} className="rounded-full border border-borda bg-superficie px-2.5 py-0.5 text-sm text-texto-suave">
+              <span
+                key={e}
+                className="rounded-full border border-borda bg-superficie px-2.5 py-0.5 text-sm text-texto-suave"
+              >
                 {e}
               </span>
             ))}

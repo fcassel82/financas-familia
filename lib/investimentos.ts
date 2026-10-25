@@ -87,7 +87,13 @@ export function historicoPorMes(
     if (l.status !== 'pago') continue
     const chave = chaveCompetencia(l.data)
     if (!janela.has(chave)) continue
-    const linha = porMes.get(chave) ?? { chave, aplicado: 0, resgatado: 0, aporteEmpresa: 0, rendimento: 0 }
+    const linha = porMes.get(chave) ?? {
+      chave,
+      aplicado: 0,
+      resgatado: 0,
+      aporteEmpresa: 0,
+      rendimento: 0,
+    }
     if (l.transferencia_id) {
       if (l.tipo === 'receita') linha.aplicado += Number(l.valor)
       else linha.resgatado += Number(l.valor)

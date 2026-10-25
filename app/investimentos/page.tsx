@@ -4,7 +4,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabaseClient'
 import { buscarTudo } from '@/lib/buscarTudo'
-import { chaveCompetencia, dataBR, hojeISO, moeda, rotuloMesLongo } from '@/lib/formato'
+import {
+  chaveCompetencia,
+  dataBR,
+  hojeISO,
+  limitesCompetencia,
+  moeda,
+  rotuloMesLongo,
+} from '@/lib/formato'
 import {
   CAMPOS_LANCAMENTO_INVESTIMENTO,
   dataUltimaAtualizacao,
@@ -16,7 +23,15 @@ import {
   type LinhaHistorico,
 } from '@/lib/investimentos'
 import { IconeMais } from '@/components/Icones'
-import { BotaoSecundario, CabecalhoPagina, EstadoVazio, Mensagem, Pagina } from '@/components/ui'
+import {
+  BotaoSecundario,
+  CabecalhoPagina,
+  EstadoVazio,
+  Mensagem,
+  Pagina,
+  Seta,
+} from '@/components/ui'
+import { linkResumo, type MovimentoResumo } from '@/lib/resumo'
 import AtualizarSaldo from './AtualizarSaldo'
 
 type ContaInvestimento = {
@@ -117,6 +132,14 @@ export default function InvestimentosPage() {
   const aplicadoNoMes = doMes.reduce((s, h) => s + h.aplicado, 0)
   const resgatadoNoMes = doMes.reduce((s, h) => s + h.resgatado, 0)
 
+  // Somas desta tela abrem o Resumo com tudo o que aconteceu dentro das contas
+  const doAno = { de: `${ano}-01-01`, ate: `${ano}-12-31`, regra: 'conta' as const }
+  const doMesAtual = {
+    de: limitesCompetencia(mesAtual).inicio,
+    ate: limitesCompetencia(mesAtual).fim,
+    regra: 'conta' as const,
+  }
+
   async function aoSalvar(texto: string) {
     setAtualizando(null)
     setMensagem(texto)
@@ -152,13 +175,31 @@ export default function InvestimentosPage() {
               {investimentos.length} investimento{investimentos.length > 1 ? 's' : ''}.
             </p>
             <p className="mt-1 text-texto-suave">
-              Em {ano}{' '}
-              {rendeuNoAno >= 0 ? 'renderam ' : 'perderam '}
-              <strong className={`font-semibold whitespace-nowrap ${rendeuNoAno >= 0 ? 'text-receita' : 'text-despesa'}`}>
+              Em {ano} {rendeuNoAno >= 0 ? 'renderam ' : 'perderam '}
+              <Link
+                href={linkResumo({
+                  ...doAno,
+                  movimento: 'rendimento',
+                  titulo: `Rendimentos de ${ano}`,
+                })}
+                className={`font-semibold whitespace-nowrap underline decoration-dotted underline-offset-4 ${
+                  rendeuNoAno >= 0 ? 'text-receita' : 'text-despesa'
+                }`}
+              >
                 {moeda(Math.abs(rendeuNoAno))}
-              </strong>{' '}
+              </Link>{' '}
               e a empresa aportou{' '}
-              <strong className="font-semibold whitespace-nowrap text-texto">{moeda(aporteNoAno)}</strong>.
+              <Link
+                href={linkResumo({
+                  ...doAno,
+                  movimento: 'aporte_empresa',
+                  titulo: `Aportes da empresa em ${ano}`,
+                })}
+                className="font-semibold whitespace-nowrap text-texto underline decoration-dotted underline-offset-4"
+              >
+                {moeda(aporteNoAno)}
+              </Link>
+              .
             </p>
           </section>
 
@@ -185,17 +226,29 @@ export default function InvestimentosPage() {
                       </span>
                     )}
                   </div>
-                  <div className="shrink-0 text-right">
-                    <p className="text-lg font-bold whitespace-nowrap text-texto">{moeda(inv.saldo)}</p>
-                    <p
-                      className={`text-sm whitespace-nowrap ${
-                        inv.rendeu > 0 ? 'text-receita' : inv.rendeu < 0 ? 'text-despesa' : 'text-texto-suave'
-                      }`}
-                    >
-                      {inv.rendeu < 0 ? 'perdeu' : 'rendeu'} {moeda(Math.abs(inv.rendeu))} em {ano}
-                    </p>
-                  </div>
+                  <p className="shrink-0 text-lg font-bold whitespace-nowrap text-texto">
+                    {moeda(inv.saldo)}
+                  </p>
                 </button>
+
+                <Link
+                  href={linkResumo({
+                    ...doAno,
+                    conta: inv.id,
+                    movimento: 'rendimento',
+                    titulo: `Rendimentos de ${inv.nome}`,
+                  })}
+                  className={`mx-2 -mt-2 mb-1 flex min-h-11 items-center justify-end gap-2 rounded-lg px-2 text-sm whitespace-nowrap transition-colors hover:bg-fundo ${
+                    inv.rendeu > 0
+                      ? 'text-receita'
+                      : inv.rendeu < 0
+                        ? 'text-despesa'
+                        : 'text-texto-suave'
+                  }`}
+                >
+                  {inv.rendeu < 0 ? 'perdeu' : 'rendeu'} {moeda(Math.abs(inv.rendeu))} em {ano}
+                  <Seta />
+                </Link>
 
                 <div className="flex items-center justify-between gap-2 px-4 pb-4">
                   <BotaoSecundario onClick={() => setAtualizando(inv)} className="min-h-11">
@@ -210,7 +263,9 @@ export default function InvestimentosPage() {
                   </button>
                 </div>
 
-                {aberto === inv.id && <Historico linhas={inv.historico} />}
+                {aberto === inv.id && (
+                  <Historico linhas={inv.historico} conta={inv.id} nome={inv.nome} />
+                )}
               </li>
             ))}
           </ul>
@@ -219,8 +274,30 @@ export default function InvestimentosPage() {
             <h2 className="text-base font-semibold text-texto">{rotuloMesLongo(mesAtual)}</h2>
             <p className="mt-1 text-texto">
               Neste mês vocês aplicaram{' '}
-              <strong className="font-semibold whitespace-nowrap">{moeda(aplicadoNoMes)}</strong> e resgataram{' '}
-              <strong className="font-semibold whitespace-nowrap">{moeda(resgatadoNoMes)}</strong>.
+              <Link
+                href={linkResumo({
+                  ...doMesAtual,
+                  tipoConta: 'investimento',
+                  movimento: 'aplicado',
+                  titulo: 'Aplicações do mês',
+                })}
+                className="font-semibold whitespace-nowrap underline decoration-dotted underline-offset-4"
+              >
+                {moeda(aplicadoNoMes)}
+              </Link>{' '}
+              e resgataram{' '}
+              <Link
+                href={linkResumo({
+                  ...doMesAtual,
+                  tipoConta: 'investimento',
+                  movimento: 'resgatado',
+                  titulo: 'Resgates do mês',
+                })}
+                className="font-semibold whitespace-nowrap underline decoration-dotted underline-offset-4"
+              >
+                {moeda(resgatadoNoMes)}
+              </Link>
+              .
             </p>
             <Link
               href="/calculadora-50-30-20"
@@ -244,15 +321,27 @@ export default function InvestimentosPage() {
   )
 }
 
-const COLUNAS: { campo: keyof Omit<LinhaHistorico, 'chave'>; rotulo: string }[] = [
-  { campo: 'aplicado', rotulo: 'Aplicado' },
-  { campo: 'resgatado', rotulo: 'Resgatado' },
-  { campo: 'aporteEmpresa', rotulo: 'Aporte da empresa' },
-  { campo: 'rendimento', rotulo: 'Rendeu' },
+const COLUNAS: {
+  campo: keyof Omit<LinhaHistorico, 'chave'>
+  rotulo: string
+  movimento: MovimentoResumo
+}[] = [
+  { campo: 'aplicado', rotulo: 'Aplicado', movimento: 'aplicado' },
+  { campo: 'resgatado', rotulo: 'Resgatado', movimento: 'resgatado' },
+  { campo: 'aporteEmpresa', rotulo: 'Aporte da empresa', movimento: 'aporte_empresa' },
+  { campo: 'rendimento', rotulo: 'Rendeu', movimento: 'rendimento' },
 ]
 
 /** Histórico por mês de competência: só mostra os valores que existem no mês */
-function Historico({ linhas }: { linhas: LinhaHistorico[] }) {
+function Historico({
+  linhas,
+  conta,
+  nome,
+}: {
+  linhas: LinhaHistorico[]
+  conta: string
+  nome: string
+}) {
   if (linhas.length === 0) {
     return (
       <p className="border-t border-borda px-4 py-3 text-sm text-texto-suave">
@@ -265,21 +354,38 @@ function Historico({ linhas }: { linhas: LinhaHistorico[] }) {
       {linhas.map((linha) => (
         <li key={linha.chave} className="py-3">
           <p className="text-sm font-semibold text-texto">{rotuloMesLongo(linha.chave)}</p>
-          <dl className="mt-1 space-y-0.5 text-sm">
-            {COLUNAS.filter(({ campo }) => linha[campo] !== 0).map(({ campo, rotulo }) => (
-              <div key={campo} className="flex justify-between gap-2">
-                <dt className="text-texto-suave">{rotulo}</dt>
-                <dd
-                  className={`font-medium whitespace-nowrap ${
-                    campo === 'rendimento' && linha[campo] < 0 ? 'text-despesa' : 'text-texto'
-                  }`}
-                >
-                  {campo === 'rendimento' && linha[campo] < 0 ? '−' : ''}
-                  {moeda(Math.abs(linha[campo]))}
-                </dd>
-              </div>
-            ))}
-          </dl>
+          <ul className="mt-1 text-sm">
+            {COLUNAS.filter(({ campo }) => linha[campo] !== 0).map(
+              ({ campo, rotulo, movimento }) => (
+                <li key={campo}>
+                  <Link
+                    href={linkResumo({
+                      de: limitesCompetencia(linha.chave).inicio,
+                      ate: limitesCompetencia(linha.chave).fim,
+                      regra: 'conta',
+                      conta,
+                      movimento,
+                      titulo: `${rotulo} em ${nome}`,
+                    })}
+                    className="-mx-2 flex min-h-11 items-center justify-between gap-2 rounded-lg px-2 transition-colors hover:bg-fundo"
+                  >
+                    <span className="text-texto-suave">{rotulo}</span>
+                    <span className="flex items-center gap-2">
+                      <span
+                        className={`font-medium whitespace-nowrap ${
+                          campo === 'rendimento' && linha[campo] < 0 ? 'text-despesa' : 'text-texto'
+                        }`}
+                      >
+                        {campo === 'rendimento' && linha[campo] < 0 ? '−' : ''}
+                        {moeda(Math.abs(linha[campo]))}
+                      </span>
+                      <Seta />
+                    </span>
+                  </Link>
+                </li>
+              )
+            )}
+          </ul>
         </li>
       ))}
     </ul>

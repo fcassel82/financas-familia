@@ -23,10 +23,13 @@ Em todo lugar do app que mostra uma soma de um grupo (uma categoria, um mês, um
 | `categoria` | id ou `sem` | Só essa categoria (`sem` = sem categoria) |
 | `subcategoria` | id ou `sem` | Só essa subcategoria |
 | `categorias` | ids separados por vírgula | Qualquer uma delas (filtro múltiplo dos Relatórios) |
+| `subcategorias` | ids separados por vírgula | Qualquer uma delas (filtro múltiplo dos Relatórios; `__sem_subcategoria__` = sem subcategoria) |
 | `grupo` | `necessidade`, `desejo`, `investimento`, `deducao`, `sem` | Grupo 50/30/20 da subcategoria |
 | `escopo` | `familiar`, `pessoal` | Só esse escopo |
 | `membros` | ids separados por vírgula | Dono do lançamento (pessoal) ou familiar, como no filtro "Quem" |
+| `dono` | id | Quem lançou (filtro de membro dos Relatórios) |
 | `conta` | id | Só essa conta |
+| `tipoConta` | tipo de conta | Só contas desse tipo (ex.: todas as de investimento) |
 | `cartao` | id | Só esse cartão |
 | `movimento` | `rendimento`, `aporte_empresa`, `aplicado`, `resgatado` | Movimento dentro de uma conta de investimento |
 | `titulo` | texto | Título mostrado (ex.: "Alimentação") |

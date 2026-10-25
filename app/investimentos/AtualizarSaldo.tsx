@@ -4,7 +4,14 @@ import { useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import { hojeISO, moeda } from '@/lib/formato'
 import { calcularAtualizacao } from '@/lib/investimentos'
-import { BotaoPrimario, BotaoSecundario, Campo, InputMoeda, Modal, classeInput } from '@/components/ui'
+import {
+  BotaoPrimario,
+  BotaoSecundario,
+  Campo,
+  InputMoeda,
+  Modal,
+  classeInput,
+} from '@/components/ui'
 
 type ContaAtualizada = { id: string; nome: string; escopo: string }
 
@@ -40,7 +47,9 @@ export default function AtualizarSaldo({
   const [erro, setErro] = useState('')
 
   const calculo =
-    saldoBanco === '' ? null : calcularAtualizacao(saldoApp, Number(saldoBanco), Number(aporte || 0))
+    saldoBanco === ''
+      ? null
+      : calcularAtualizacao(saldoApp, Number(saldoBanco), Number(aporte || 0))
   const partes = calculo ? descreverLancamentos(calculo.aporte, calculo.rendimento) : []
 
   async function salvar(e: React.FormEvent) {
@@ -95,7 +104,9 @@ export default function AtualizarSaldo({
     // lançamento marcado (ver dataUltimaAtualizacao)
     await supabase.from('contas').update({ saldo_conferido_em: data }).eq('id', conta.id)
 
-    onSalvo(partes.length > 0 ? `Saldo atualizado. Lançado ${partes.join(' e ')}.` : 'Saldo atualizado.')
+    onSalvo(
+      partes.length > 0 ? `Saldo atualizado. Lançado ${partes.join(' e ')}.` : 'Saldo atualizado.'
+    )
   }
 
   return (
@@ -107,7 +118,12 @@ export default function AtualizarSaldo({
         </div>
 
         <Campo rotulo="Saldo no banco hoje">
-          <InputMoeda valor={saldoBanco} onChange={setSaldoBanco} required aria-label="Saldo no banco hoje" />
+          <InputMoeda
+            valor={saldoBanco}
+            onChange={setSaldoBanco}
+            required
+            aria-label="Saldo no banco hoje"
+          />
         </Campo>
 
         <Campo rotulo="Aporte da empresa desde a última atualização (opcional)">
@@ -125,8 +141,13 @@ export default function AtualizarSaldo({
         </Campo>
 
         {calculo && (
-          <p className="rounded-lg border border-borda px-3 py-2.5 text-sm text-texto" aria-live="polite">
-            {partes.length > 0 ? `Vai lançar ${partes.join(' e ')}.` : 'O saldo já confere, nada a lançar.'}
+          <p
+            className="rounded-lg border border-borda px-3 py-2.5 text-sm text-texto"
+            aria-live="polite"
+          >
+            {partes.length > 0
+              ? `Vai lançar ${partes.join(' e ')}.`
+              : 'O saldo já confere, nada a lançar.'}
           </p>
         )}
 

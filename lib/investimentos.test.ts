@@ -55,7 +55,12 @@ describe('resumoDoAno', () => {
   it('soma rendimento líquido e aporte da empresa do ano', () => {
     const lancs = [
       lanc({ data: '2026-09-01', valor: 50.63, movimento_investimento: 'rendimento' }),
-      lanc({ data: '2026-10-01', tipo: 'despesa', valor: 10, movimento_investimento: 'rendimento' }),
+      lanc({
+        data: '2026-10-01',
+        tipo: 'despesa',
+        valor: 10,
+        movimento_investimento: 'rendimento',
+      }),
       lanc({ data: '2026-09-18', valor: 996.42, movimento_investimento: 'aporte_empresa' }),
       lanc({ data: '2025-12-01', valor: 100, movimento_investimento: 'aporte_empresa' }),
     ]
@@ -93,7 +98,9 @@ describe('dataUltimaAtualizacao', () => {
   })
 
   it('ignora lançamentos sem marcação', () => {
-    expect(dataUltimaAtualizacao(null, [lanc({ data: '2026-10-05', transferencia_id: 't' })])).toBeNull()
+    expect(
+      dataUltimaAtualizacao(null, [lanc({ data: '2026-10-05', transferencia_id: 't' })])
+    ).toBeNull()
   })
 
   it('sem nada, nunca foi atualizado', () => {

@@ -29,6 +29,8 @@ export type FiltroResumo = {
   /** Quem lançou (dono_id), como o filtro de membro dos Relatórios */
   dono?: string
   conta?: string
+  /** Só contas deste tipo (ex.: 'investimento' para somar todas as aplicações) */
+  tipoConta?: string
   cartao?: string
   movimento?: MovimentoResumo
   titulo?: string
@@ -100,6 +102,7 @@ export function linkResumo(f: FiltroResumo): string {
   if (f.membros?.length) p.set('membros', f.membros.join(','))
   if (f.dono) p.set('dono', f.dono)
   if (f.conta) p.set('conta', f.conta)
+  if (f.tipoConta) p.set('tipoConta', f.tipoConta)
   if (f.cartao) p.set('cartao', f.cartao)
   if (f.movimento) p.set('movimento', f.movimento)
   if (f.titulo) p.set('titulo', f.titulo)
@@ -127,6 +130,7 @@ export function lerFiltroResumo(p: URLSearchParams): FiltroResumo | null {
   if (membros) f.membros = membros
   if (p.get('dono')) f.dono = p.get('dono')!
   if (p.get('conta')) f.conta = p.get('conta')!
+  if (p.get('tipoConta')) f.tipoConta = p.get('tipoConta')!
   if (p.get('cartao')) f.cartao = p.get('cartao')!
   const movimento = escolher(p.get('movimento'), MOVIMENTOS)
   if (movimento) f.movimento = movimento
@@ -149,7 +153,7 @@ function ehAplicacao(l: LancamentoResumo, ctx: ContextoResumo): boolean {
 function grupoDoLancamento(l: LancamentoResumo, ctx: ContextoResumo): GrupoResumo | null {
   if (l.transferencia_id) return ehAplicacao(l, ctx) ? 'investimento' : null
   if (l.tipo === 'receita') return null
-  const g = l.subcategoria_id ? ctx.grupoDaSubcategoria.get(l.subcategoria_id) ?? null : null
+  const g = l.subcategoria_id ? (ctx.grupoDaSubcategoria.get(l.subcategoria_id) ?? null) : null
   return (g as GrupoResumo | null) ?? 'sem'
 }
 
@@ -167,7 +171,10 @@ export function entraNoResumo(l: LancamentoResumo, f: FiltroResumo, ctx: Context
   if (!passaRegra(l, f, ctx)) return false
 
   if (f.tipo && l.tipo !== f.tipo) return false
-  if (f.categoria && (f.categoria === 'sem' ? l.categoria_id !== null : l.categoria_id !== f.categoria))
+  if (
+    f.categoria &&
+    (f.categoria === 'sem' ? l.categoria_id !== null : l.categoria_id !== f.categoria)
+  )
     return false
   if (
     f.subcategoria &&
@@ -184,6 +191,7 @@ export function entraNoResumo(l: LancamentoResumo, f: FiltroResumo, ctx: Context
     if (!f.membros.includes(quem)) return false
   }
   if (f.conta && l.conta_id !== f.conta) return false
+  if (f.tipoConta && (!l.conta_id || ctx.tipoDaConta.get(l.conta_id) !== f.tipoConta)) return false
   if (f.cartao && l.cartao_id !== f.cartao) return false
 
   if (f.grupo && grupoDoLancamento(l, ctx) !== f.grupo) return false
@@ -191,7 +199,8 @@ export function entraNoResumo(l: LancamentoResumo, f: FiltroResumo, ctx: Context
   // Aplicado: dentro da conta de investimento é a chegada da transferência; na
   // regra 50/30/20 é a saída da conta comum (a ponta que conta como Futuro)
   if (f.movimento === 'aplicado') {
-    const ok = f.regra === '503020' ? ehAplicacao(l, ctx) : !!l.transferencia_id && l.tipo === 'receita'
+    const ok =
+      f.regra === '503020' ? ehAplicacao(l, ctx) : !!l.transferencia_id && l.tipo === 'receita'
     if (!ok) return false
   }
   if (f.movimento === 'resgatado' && !(l.transferencia_id && l.tipo === 'despesa')) return false
