@@ -16,6 +16,7 @@ import {
 } from '@/lib/formato'
 import { sugerirCategoriaLancamento } from '@/lib/sugerirCategoriaHistorico'
 import { IconeLixeira, IconeMais, IconeSeta } from '@/components/Icones'
+import { linkResumo } from '@/lib/resumo'
 import {
   BotaoPrimario,
   BotaoSecundario,
@@ -25,6 +26,7 @@ import {
   InputMoeda,
   Mensagem,
   Pagina,
+  Seta,
   classeInput,
 } from '@/components/ui'
 
@@ -228,6 +230,24 @@ export default function TransacoesPage() {
     }
     return Array.from(mapa.entries())
   }, [visiveis])
+
+  // Os cartões de total abrem o Resumo com o mesmo mês, aba e filtros da tela
+  function linkDoMes(tipo: 'receita' | 'despesa' | undefined, titulo: string) {
+    const { inicio, fim } = limitesCompetencia(mes)
+    return linkResumo({
+      de: inicio,
+      ate: fim,
+      regra: 'resultado',
+      tipo,
+      escopo: aba === 'todos' ? undefined : aba,
+      categoria: categoriaFiltro || undefined,
+      subcategoria: subcategoriaFiltro || undefined,
+      conta: contaFiltro || undefined,
+      titulo,
+    })
+  }
+  const classeCartaoLink =
+    'cartao flex items-center justify-between gap-2 p-3 transition-colors hover:border-primaria/40'
 
   const classeAba = (valor: string) =>
     `rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
@@ -478,24 +498,33 @@ export default function TransacoesPage() {
 
       {/* Resumo do período */}
       <div className="mb-4 grid gap-3 sm:grid-cols-3">
-        <div className="cartao p-3">
-          <p className="text-xs text-texto-suave">Receitas</p>
-          <p className="whitespace-nowrap text-lg font-semibold text-receita">{moeda(receitas)}</p>
-        </div>
-        <div className="cartao p-3">
-          <p className="text-xs text-texto-suave">Despesas</p>
-          <p className="whitespace-nowrap text-lg font-semibold text-despesa">{moeda(despesas)}</p>
-        </div>
-        <div className="cartao p-3">
-          <p className="text-xs text-texto-suave">Saldo</p>
-          <p
-            className={`whitespace-nowrap text-lg font-semibold ${
-              saldo >= 0 ? 'text-receita' : 'text-despesa'
-            }`}
-          >
-            {moeda(saldo)}
-          </p>
-        </div>
+        <Link href={linkDoMes('receita', 'Receitas do mês')} className={classeCartaoLink}>
+          <div>
+            <p className="text-xs text-texto-suave">Receitas</p>
+            <p className="whitespace-nowrap text-lg font-semibold text-receita">{moeda(receitas)}</p>
+          </div>
+          <Seta />
+        </Link>
+        <Link href={linkDoMes('despesa', 'Despesas do mês')} className={classeCartaoLink}>
+          <div>
+            <p className="text-xs text-texto-suave">Despesas</p>
+            <p className="whitespace-nowrap text-lg font-semibold text-despesa">{moeda(despesas)}</p>
+          </div>
+          <Seta />
+        </Link>
+        <Link href={linkDoMes(undefined, 'Lançamentos do mês')} className={classeCartaoLink}>
+          <div>
+            <p className="text-xs text-texto-suave">Saldo</p>
+            <p
+              className={`whitespace-nowrap text-lg font-semibold ${
+                saldo >= 0 ? 'text-receita' : 'text-despesa'
+              }`}
+            >
+              {moeda(saldo)}
+            </p>
+          </div>
+          <Seta />
+        </Link>
       </div>
 
       {carregando && <p className="text-sm text-texto-suave">Carregando...</p>}
