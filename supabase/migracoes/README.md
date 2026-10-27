@@ -10,6 +10,7 @@ cole o conteúdo do arquivo e rode. Não precisa de CLI.
 | `20261024_movimento_investimento.sql` | Marca rendimento e aporte da empresa (sempre neutros) e guarda a data de conferência do saldo; reclassifica 6 lançamentos de EQTPREV e FGTS. | ✅ aplicada em 24/10/2026 |
 | `20261025_veiculo_pessoal_rls.sql` | Abastecimentos e manutenções de veículo pessoal só aparecem para o dono e o administrador. | ✅ aplicada em 25/10/2026 |
 | `20261025_lancado_por_automatico.sql` | Preenche os 110 lançamentos sem autor com o dono; o banco passa a definir o autor sozinho (não dá para trocar na edição) e o campo fica obrigatório. | ✅ aplicada em 25/10/2026 |
+| `20261026_bancos_pluggy.sql` | Notas fiscais como registro próprio (itens apontam para a nota); contas e caixa de entrada do Meu Pluggy, só para o administrador. | ✅ aplicada em 26/10/2026 |
 
 ## Como conferir que deu certo
 
