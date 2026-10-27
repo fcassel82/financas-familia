@@ -5,7 +5,7 @@ import {
   idsDasConexoes,
   listarContas,
   listarTransacoes,
-  pluggyConfigurada,
+  variaveisFaltando,
 } from '@/lib/pluggy'
 
 // Conferência: só LÊ da Pluggy e devolve um resumo. Não grava nada no banco.
@@ -44,9 +44,12 @@ export async function GET(request: NextRequest) {
     )
   }
 
-  if (!pluggyConfigurada()) {
+  const faltando = variaveisFaltando()
+  if (faltando.length > 0) {
     return NextResponse.json(
-      { error: 'As variáveis da Pluggy não estão cadastradas na Vercel para este ambiente.' },
+      {
+        error: `Faltam na Vercel, para este ambiente (${process.env.VERCEL_ENV ?? 'local'}): ${faltando.join(', ')}.`,
+      },
       { status: 500 }
     )
   }

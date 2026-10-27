@@ -48,12 +48,13 @@ export function idsDasConexoes(): string[] {
     .filter(Boolean)
 }
 
-export function pluggyConfigurada(): boolean {
-  return (
-    !!process.env.PLUGGY_CLIENT_ID &&
-    !!process.env.PLUGGY_CLIENT_SECRET &&
-    idsDasConexoes().length > 0
-  )
+/** Nomes das variáveis que faltam (só os nomes, nunca os valores) */
+export function variaveisFaltando(): string[] {
+  const faltando: string[] = []
+  if (!process.env.PLUGGY_CLIENT_ID?.trim()) faltando.push('PLUGGY_CLIENT_ID')
+  if (!process.env.PLUGGY_CLIENT_SECRET?.trim()) faltando.push('PLUGGY_CLIENT_SECRET')
+  if (idsDasConexoes().length === 0) faltando.push('PLUGGY_ITEM_IDS')
+  return faltando
 }
 
 async function chaveDeAcesso(): Promise<string> {
