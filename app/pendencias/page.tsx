@@ -87,6 +87,32 @@ function semSubcategoria(l: Lancamento): boolean {
   )
 }
 
+/**
+ * Aba "Sem subcategoria": primeiro as subcategorias da categoria já salva; se o
+ * histórico apontar com força outra categoria (mesma descrição ou comerciante),
+ * ela também aparece, para corrigir a categoria junto.
+ */
+function sugestoesDeSubcategoria(
+  l: Lancamento,
+  historico: Lancamento[],
+  categorias: { id: string; nome: string; tipo: string }[],
+  subcategorias: Subcategoria[]
+): SugestaoDeCategoria[] {
+  const daCategoria = sugerirSubcategoria(l, historico, subcategorias)
+  const outras = sugerirCategoria(l, historico, categorias, subcategorias).filter(
+    (s) => s.categoria_id !== l.categoria_id && s.subcategoria_id && /^Mesm[ao] /.test(s.motivo)
+  )
+  const juntas = [...daCategoria, ...outras]
+  return juntas
+    .filter(
+      (s, i) =>
+        juntas.findIndex(
+          (x) => x.categoria_id === s.categoria_id && x.subcategoria_id === s.subcategoria_id
+        ) === i
+    )
+    .slice(0, 3)
+}
+
 const FILTRO_DA_ABA: Record<Aba, (l: Lancamento) => boolean> = {
   origem: semOrigem,
   categoria: semCategoria,
@@ -184,7 +210,7 @@ export default function PendenciasPage() {
           ? sugerirOrigem(l, lancamentos, contas, cartoes)
           : aba === 'categoria'
             ? sugerirCategoria(l, lancamentos, categorias, subcategorias)
-            : sugerirSubcategoria(l, lancamentos, subcategorias)
+            : sugestoesDeSubcategoria(l, lancamentos, categorias, subcategorias)
       )
     }
     return mapa
@@ -269,9 +295,14 @@ export default function PendenciasPage() {
                 podeEditar={isAdmin || l.dono_id === userId}
                 contas={contas}
                 cartoes={cartoes}
-                categorias={categorias.filter((c) =>
-                  aba === 'subcategoria' ? c.id === l.categoria_id : c.tipo === l.tipo
-                )}
+                // Na aba "Sem subcategoria" dá para trocar também a categoria: a atual vem primeiro
+                categorias={categorias
+                  .filter((c) => c.tipo === l.tipo)
+                  .sort(
+                    (a, b) =>
+                      Number(b.id === l.categoria_id) - Number(a.id === l.categoria_id) ||
+                      a.nome.localeCompare(b.nome)
+                  )}
                 subcategorias={subcategorias}
                 faturas={lancamentos}
                 onSalvo={aoSalvar}
@@ -458,7 +489,7 @@ function ItemPendente({
                   ? 'Escolher conta ou cartão'
                   : aba === 'categoria'
                     ? 'Escolher categoria'
-                    : 'Escolher subcategoria'
+                    : 'Escolher categoria e subcategoria'
               }
             >
               <option value="">
@@ -466,7 +497,7 @@ function ItemPendente({
                   ? 'Selecione a conta ou o cartão...'
                   : aba === 'categoria'
                     ? 'Selecione a categoria...'
-                    : 'Selecione a subcategoria...'}
+                    : 'Selecione a categoria e a subcategoria...'}
               </option>
               {aba === 'origem' ? (
                 <>
@@ -509,6 +540,13 @@ function ItemPendente({
           )}
 
           {avisoFatura && <p className="text-sm text-alerta">{avisoFatura}</p>}
+
+          {aba === 'subcategoria' && escolha && escolha.split('|')[0] !== l.categoria_id && (
+            <p className="text-sm text-alerta">
+              Muda a categoria de {l.categorias?.nome ?? 'sem categoria'} para{' '}
+              {categorias.find((c) => c.id === escolha.split('|')[0])?.nome ?? 'outra'}.
+            </p>
+          )}
 
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             {iguais.length > 0 ? (
