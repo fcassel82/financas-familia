@@ -68,6 +68,7 @@ export default function InicioPage() {
   const [lembretes, setLembretes] = useState<Pendencia[]>([])
   const [regua, setRegua] = useState<Resultado | null>(null)
   const [qtdPendencias, setQtdPendencias] = useState(0)
+  const [qtdBancos, setQtdBancos] = useState(0)
 
   const hoje = hojeISO()
   const mesAtual = chaveCompetencia(hoje)
@@ -82,7 +83,7 @@ export default function InicioPage() {
 
       const { data: perfil } = await supabase
         .from('perfis')
-        .select('nome')
+        .select('nome, papel')
         .eq('id', userData.user.id)
         .single()
       setNome(perfil?.nome ?? '')
@@ -193,6 +194,44 @@ export default function InicioPage() {
       setRegua(calcular(transacoesRegua ?? [], subcategoriaMap, contaTipoMap))
 
       setCarregando(false)
+
+      // Bancos (Meu Pluggy): só o administrador; busca sozinha no máximo 1 vez por dia neste aparelho
+      if (perfil?.papel === 'admin') {
+        const contarBancos = async () => {
+          const { count } = await supabase
+            .from('transacoes_banco')
+            .select('id', { count: 'exact', head: true })
+            .eq('situacao', 'revisar')
+          setQtdBancos(count ?? 0)
+        }
+        await contarBancos()
+        let jaBuscouHoje = false
+        try {
+          jaBuscouHoje = localStorage.getItem('pluggy_ultima_busca') === new Date().toDateString()
+        } catch {
+          // Sem armazenamento local: busca de novo (a busca não duplica nada)
+        }
+        if (!jaBuscouHoje) {
+          const { data: sessao } = await supabase.auth.getSession()
+          const token = sessao.session?.access_token
+          fetch('/api/pluggy/sincronizar', {
+            method: 'POST',
+            headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+          })
+            .then((resposta) => {
+              if (!resposta.ok) return
+              try {
+                localStorage.setItem('pluggy_ultima_busca', new Date().toDateString())
+              } catch {
+                // idem acima
+              }
+              return contarBancos()
+            })
+            .catch(() => {
+              // Sem conexão com os bancos agora: tenta de novo na próxima abertura
+            })
+        }
+      }
     }
     carregar()
   }, [router, mesAtual])
@@ -299,6 +338,21 @@ export default function InicioPage() {
             </p>
           </section>
 
+          {qtdBancos > 0 && (
+            <Link
+              href="/bancos"
+              className="flex min-h-14 items-center justify-between gap-3 rounded-xl border border-primaria/30 bg-primaria/10 px-4 py-3 transition-colors hover:bg-primaria/15"
+            >
+              <span className="text-texto">
+                <strong className="font-semibold">{qtdBancos}</strong>{' '}
+                {qtdBancos === 1 ? 'transação dos bancos' : 'transações dos bancos'} para revisar
+              </span>
+              <span className="flex shrink-0 items-center gap-1 text-sm font-semibold text-primaria">
+                Revisar <Seta />
+              </span>
+            </Link>
+          )}
+
           {qtdPendencias > 0 && (
             <Link
               href="/pendencias"
@@ -306,7 +360,8 @@ export default function InicioPage() {
             >
               <span className="text-texto">
                 <strong className="font-semibold">{qtdPendencias}</strong>{' '}
-                {qtdPendencias === 1 ? 'pendência' : 'pendências'} de classificação (conta, categoria ou subcategoria)
+                {qtdPendencias === 1 ? 'pendência' : 'pendências'} de classificação (conta,
+                categoria ou subcategoria)
               </span>
               <span className="flex shrink-0 items-center gap-1 text-sm font-semibold text-alerta">
                 Resolver <Seta />

@@ -28,6 +28,17 @@ import {
 type Categoria = { id: string; nome: string; tipo: string }
 type Subcategoria = { id: string; categoria_id: string; nome: string }
 type Formato = 'csv' | 'excel' | 'pdf' | 'ofx' | 'nfce'
+
+/** Transação do banco que está sendo detalhada com a nota fiscal (vinda de /bancos) */
+type TransacaoDaCaixa = {
+  id: string
+  descricao: string
+  valor: number
+  data: string
+  parcelas: number | null
+  conta_id: string | null
+  cartao_id: string | null
+}
 type MeioPagamento = 'dinheiro' | 'debito' | 'credito_vista' | 'credito_parcelado'
 type Conta = { id: string; nome: string; tipo: string }
 type Cartao = { id: string; nome: string }
@@ -103,6 +114,44 @@ export default function ImportarPage() {
   const [duplicatasImportacao, setDuplicatasImportacao] = useState<
     { linha: LinhaImportada; duplicatas: Duplicata[] }[] | null
   >(null)
+  const [caixa, setCaixa] = useState<TransacaoDaCaixa | null>(null)
+
+  // "Detalhar com nota fiscal" (Importar dos bancos) chega com ?caixa=<id>:
+  // já escolhe a conta/cartão do banco e, ao salvar, liga a nota à transação
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get('caixa')
+    if (!id) return
+    async function carregarCaixa(idCaixa: string) {
+      const { data } = await supabase
+        .from('transacoes_banco')
+        .select('id, descricao, valor, data, parcelas, contas_banco(conta_id, cartao_id)')
+        .eq('id', idCaixa)
+        .single()
+      if (!data) return
+      const ligacao = data.contas_banco as unknown as { conta_id: string | null; cartao_id: string | null } | null
+      const t: TransacaoDaCaixa = {
+        id: data.id,
+        descricao: data.descricao,
+        valor: Number(data.valor),
+        data: data.data,
+        parcelas: data.parcelas,
+        conta_id: ligacao?.conta_id ?? null,
+        cartao_id: ligacao?.cartao_id ?? null,
+      }
+      setCaixa(t)
+      if (t.cartao_id) {
+        setCartaoId(t.cartao_id)
+        if (t.parcelas && t.parcelas > 1) {
+          setMeioPagamento('credito_parcelado')
+          setParcelas(String(t.parcelas))
+        } else setMeioPagamento('credito_vista')
+      } else if (t.conta_id) {
+        setContaId(t.conta_id)
+        setMeioPagamento('debito')
+      }
+    }
+    carregarCaixa(id)
+  }, [])
 
   useEffect(() => {
     async function carregarCategorias() {
@@ -469,7 +518,41 @@ export default function ImportarPage() {
       return
     }
 
-    const { error } = await supabase.from('transacoes').insert(linhasParaSalvar)
+    // Nota fiscal vira um registro próprio: os itens apontam para ela, e a
+    // transação do banco com o valor pago da nota é reconhecida pela caixa de entrada
+    let notaFiscalId: string | null = null
+    let valorDaNota = 0
+    if (formato === 'nfce' && notaFiscal) {
+      const somaItens = linhasParaSalvar.reduce((s, l) => s + Number(l.valor), 0)
+      valorDaNota = notaFiscal.valorPago ?? Math.round(somaItens * 100) / 100
+      const { data: nota, error: erroNota } = await supabase
+        .from('notas_fiscais')
+        .insert({
+          loja: notaFiscal.loja,
+          cnpj: notaFiscal.cnpj,
+          data: notaFiscal.dataEmissao ?? linhasParaSalvar[0].data,
+          valor_pago: valorDaNota,
+          desconto: notaFiscal.desconto ?? 0,
+          quantidade_itens: linhasParaSalvar.length,
+          conta_id: contaParaSalvar,
+          cartao_id: cartaoParaSalvar,
+          escopo: linhasParaSalvar[0].escopo,
+          dono_id: userId,
+        })
+        .select('id')
+        .single()
+      if (erroNota || !nota) {
+        setSalvando(false)
+        setMensagem('Erro ao salvar a nota fiscal: ' + (erroNota?.message ?? 'tente novamente.'))
+        return
+      }
+      notaFiscalId = nota.id
+    }
+
+    const { data: salvos, error } = await supabase
+      .from('transacoes')
+      .insert(linhasParaSalvar.map((l) => ({ ...l, nota_fiscal_id: notaFiscalId })))
+      .select('id')
 
     setSalvando(false)
 
@@ -478,7 +561,28 @@ export default function ImportarPage() {
       return
     }
 
-    setMensagem(`${linhasParaSalvar.length} lançamentos importados com sucesso!`)
+    // Detalhando uma transação do banco: ela fica ligada aos itens e não vira outro lançamento
+    if (caixa && salvos) {
+      await supabase
+        .from('transacoes_banco')
+        .update({
+          situacao: 'ligada',
+          lancamentos: salvos.map((x) => x.id),
+          motivo: 'Detalhada com nota fiscal',
+          revisado_em: new Date().toISOString(),
+        })
+        .eq('id', caixa.id)
+      const totalNota = valorDaNota || linhasParaSalvar.reduce((s, l) => s + Number(l.valor), 0)
+      const diferenca = Math.round((caixa.valor - totalNota) * 100) / 100
+      setMensagem(
+        diferenca === 0
+          ? `Nota ${moeda(totalNota)} / Banco ${moeda(caixa.valor)} ✓ ${linhasParaSalvar.length} itens importados e ligados à transação do banco.`
+          : `${linhasParaSalvar.length} itens importados e ligados. Nota ${moeda(totalNota)} / Banco ${moeda(caixa.valor)}: diferença de ${moeda(Math.abs(diferenca))}. Confira se algum item ficou de fora.`
+      )
+      setCaixa(null)
+    } else {
+      setMensagem(`${linhasParaSalvar.length} lançamentos importados com sucesso!`)
+    }
     setEtapa('upload')
     setLinhas([])
     setLinhasBrutas([])
@@ -540,6 +644,13 @@ export default function ImportarPage() {
         titulo="Importar Extrato"
         descricao="CSV, Excel, PDF, OFX ou uma foto de nota fiscal (o site lê o QR Code)."
       />
+
+      {caixa && (
+        <p className="mb-4 rounded-xl border border-primaria/30 bg-primaria/10 px-4 py-3 text-sm text-texto">
+          Detalhando a transação do banco <strong>{caixa.descricao}</strong>, {moeda(caixa.valor)} em{' '}
+          {dataBR(caixa.data)}. Envie a foto da nota fiscal; ao salvar, os itens ficam ligados a ela.
+        </p>
+      )}
 
       {etapa === 'upload' && (
         <div className="cartao space-y-4 p-4 sm:p-6">
