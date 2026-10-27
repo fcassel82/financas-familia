@@ -585,7 +585,8 @@ function ItemCaixa({
   onConfirmado: () => void
 }) {
   const [acao, setAcao] = useState<Acao>(sugestao.acao)
-  const [categoria, setCategoria] = useState('')
+  // null = ainda não escolheu: vale a sugestão do histórico, se houver
+  const [categoria, setCategoria] = useState<string | null>(null)
   const [outra, setOutra] = useState(
     (t.tipo === 'despesa' ? sugestao.contaDestino : sugestao.origem) ?? ''
   )
@@ -612,6 +613,11 @@ function ItemCaixa({
     [t.descricao, t.tipo, donoId, historico, categorias, subcategorias]
   )
 
+  // Sugestão tirada do histórico (mesma descrição ou comerciante) já vem marcada
+  const forte = categoriasSugeridas.find((c) => /^Mesm[ao] /.test(c.motivo))
+  const categoriaEscolhida =
+    categoria ?? (forte ? `${forte.categoria_id}|${forte.subcategoria_id ?? ''}` : '')
+
   const podeLigar = sugestao.acao === 'ligar' && !!sugestao.lancamentos?.length
   const acoes: Acao[] = [
     'lancar',
@@ -629,7 +635,7 @@ function ItemCaixa({
     setErro('')
     try {
       if (acaoAtual === 'ligar') await onLigar(sugestao.lancamentos ?? [], sugestao.motivo)
-      else if (acaoAtual === 'lancar') await onLancar(categoria)
+      else if (acaoAtual === 'lancar') await onLancar(categoriaEscolhida)
       else if (acaoAtual === 'transferencia') await onTransferir(outra)
       else await onIgnorar(motivo)
       onConfirmado()
@@ -709,7 +715,7 @@ function ItemCaixa({
                     type="button"
                     onClick={() => setCategoria(chave)}
                     className={`min-h-12 rounded-lg border px-3 py-1.5 text-left transition-colors ${
-                      categoria === chave
+                      categoriaEscolhida === chave
                         ? 'border-primaria bg-primaria/10'
                         : 'border-borda bg-superficie hover:bg-fundo'
                     }`}
@@ -722,7 +728,7 @@ function ItemCaixa({
             </div>
             <select
               className={classeInput}
-              value={categoria}
+              value={categoriaEscolhida}
               onChange={(e) => setCategoria(e.target.value)}
               aria-label="Categoria"
             >
