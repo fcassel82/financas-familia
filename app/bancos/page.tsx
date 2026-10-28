@@ -31,6 +31,8 @@ import {
   classeInput,
 } from '@/components/ui'
 import SaldosInvestimentos from './SaldosInvestimentos'
+import DetalharSalario from './DetalharSalario'
+import { montarLinhasSalario, type LinhaSalario } from '@/lib/salario'
 
 type ContaBanco = {
   id: string
@@ -69,7 +71,7 @@ type ContaApp = {
 }
 type InvestimentoDoBanco = InvestimentoBanco & { item_id: string }
 type CartaoApp = { id: string; nome: string; ativo: boolean; escopo: string }
-type Categoria = { id: string; nome: string; tipo: string }
+type Categoria = { id: string; nome: string; tipo: string; segue_mes_salario: boolean }
 type Subcategoria = { id: string; nome: string; categoria_id: string }
 type Lancamento = LancamentoApp & Historico
 type Acao = Sugestao['acao']
@@ -82,7 +84,7 @@ const ROTULO_ACAO: Record<Acao, string> = {
 }
 
 const CAMPOS_LANCAMENTO =
-  'id, data, descricao, valor, tipo, status, escopo, dono_id, conta_id, cartao_id, categoria_id, subcategoria_id, parcela_total, nota_fiscal_id, transferencia_id, fatura_cartao_id, criado_em'
+  'id, data, descricao, valor, tipo, status, escopo, dono_id, conta_id, cartao_id, categoria_id, subcategoria_id, parcela_total, nota_fiscal_id, transferencia_id, fatura_cartao_id, criado_em, neutro'
 
 export default function BancosPage() {
   const [carregando, setCarregando] = useState(true)
@@ -139,7 +141,7 @@ export default function BancosPage() {
         .select('id, nome, tipo, ativo, escopo, dono_id, saldo_inicial, saldo_conferido_em')
         .order('nome'),
       supabase.from('cartoes_credito').select('id, nome, ativo, escopo').order('nome'),
-      supabase.from('categorias').select('id, nome, tipo').order('nome'),
+      supabase.from('categorias').select('id, nome, tipo, segue_mes_salario').order('nome'),
       supabase.from('subcategorias').select('id, nome, categoria_id').order('nome'),
       buscarTudo((de, ate) =>
         supabase.from('transacoes').select(CAMPOS_LANCAMENTO).order('id').range(de, ate)
@@ -310,9 +312,13 @@ export default function BancosPage() {
     [contas, cartoes]
   )
 
+  const categoriasFolha = useMemo(
+    () => new Set(categorias.filter((c) => c.segue_mes_salario).map((c) => c.id)),
+    [categorias]
+  )
   const ctx: ContextoConciliacao = useMemo(
-    () => ({ lancamentos, notas, contas, nomeDaContaApp: nomeConta, jaLigados }),
-    [lancamentos, notas, contas, nomeConta, jaLigados]
+    () => ({ lancamentos, notas, contas, nomeDaContaApp: nomeConta, jaLigados, categoriasFolha }),
+    [lancamentos, notas, contas, nomeConta, jaLigados, categoriasFolha]
   )
 
   const itemDe = useCallback(
@@ -418,7 +424,7 @@ export default function BancosPage() {
     concluir([t.id], ids)
   }
 
-  async function lancar(t: TransacaoBanco, categoria: string) {
+  async function lancar(t: TransacaoBanco, categoria: string, neutro = false) {
     const cb = contaBancoPorId.get(t.conta_banco_id)!
     const escopo = cb.cartao_id
       ? (cartoes.find((c) => c.id === cb.cartao_id)?.escopo ?? 'familiar')
@@ -439,6 +445,7 @@ export default function BancosPage() {
         subcategoria_id: subId || null,
         parcela_numero: t.parcelas && t.parcelas > 1 ? t.parcela : null,
         parcela_total: t.parcelas && t.parcelas > 1 ? t.parcelas : null,
+        neutro,
         dono_id: userId,
       })
       .select(CAMPOS_LANCAMENTO)
@@ -447,6 +454,64 @@ export default function BancosPage() {
     await marcar(t, 'lancada', [data.id], 'Lançado')
     setLancamentos((atual) => [...atual, data as unknown as Lancamento])
     concluir([t.id], [data.id])
+  }
+
+  /** Contracheque em linhas: previsões viram pagas, o resto é inserido; tudo liga ao crédito */
+  async function detalharSalario(t: TransacaoBanco, linhas: LinhaSalario[]) {
+    const cb = contaBancoPorId.get(t.conta_banco_id)!
+    const conta = cb.conta_id!
+    const escopo = contas.find((c) => c.id === conta)?.escopo ?? 'familiar'
+    const ids: string[] = []
+    for (const l of linhas) {
+      if (l.contaDestino) {
+        const base = {
+          data: t.data,
+          descricao: `Transferência: ${nomeConta(conta)} → ${nomeConta(l.contaDestino)}`,
+          valor: l.valor,
+          escopo: 'familiar',
+          status: 'pago',
+          transferencia_id: crypto.randomUUID(),
+          dono_id: userId,
+        }
+        const { data, error } = await supabase
+          .from('transacoes')
+          .insert([
+            { ...base, tipo: 'despesa', conta_id: conta },
+            { ...base, tipo: 'receita', conta_id: l.contaDestino },
+          ])
+          .select('id, conta_id')
+        if (error || !data) throw error
+        ids.push(data.find((d) => d.conta_id === conta)!.id as string)
+        continue
+      }
+      const campos = {
+        data: t.data,
+        descricao: l.descricao.trim(),
+        valor: l.valor,
+        tipo: l.tipo,
+        categoria_id: l.categoria_id,
+        subcategoria_id: l.subcategoria_id,
+        neutro: l.neutro,
+        status: 'pago',
+      }
+      if (l.id) {
+        const { error } = await supabase.from('transacoes').update(campos).eq('id', l.id)
+        if (error) throw error
+        ids.push(l.id)
+      } else {
+        const { data, error } = await supabase
+          .from('transacoes')
+          .insert({ ...campos, conta_id: conta, escopo, dono_id: userId })
+          .select('id')
+          .single()
+        if (error || !data) throw error
+        ids.push(data.id as string)
+      }
+    }
+    await marcar(t, 'ligada', ids, 'Salário detalhado')
+    concluir([t.id], ids)
+    setMensagem(`Salário lançado em ${linhas.length} linhas.`)
+    await carregar()
   }
 
   async function transferir(t: TransacaoBanco, outra: string) {
@@ -702,7 +767,9 @@ export default function BancosPage() {
                           podeTransferir={!!cb.conta_id}
                           nomeConta={nomeConta}
                           onLigar={(ids, motivo) => ligar(t, ids, motivo)}
-                          onLancar={(categoria) => lancar(t, categoria)}
+                          onLancar={(categoria, neutro) => lancar(t, categoria, neutro)}
+                          linhasSalario={() => montarLinhasSalario(itemDe(t)!, lancamentos, categoriasFolha)}
+                          onDetalharSalario={(linhas) => detalharSalario(t, linhas)}
                           onTransferir={(outra) => transferir(t, outra)}
                           onIgnorar={(motivo) => ignorar(t, motivo)}
                           onConfirmado={() => setMensagem('Confirmado.')}
@@ -732,6 +799,8 @@ function ItemCaixa({
   nomeConta,
   onLigar,
   onLancar,
+  linhasSalario,
+  onDetalharSalario,
   onTransferir,
   onIgnorar,
   onConfirmado,
@@ -746,7 +815,9 @@ function ItemCaixa({
   podeTransferir: boolean
   nomeConta: (id: string) => string
   onLigar: (ids: string[], motivo: string) => Promise<void>
-  onLancar: (categoria: string) => Promise<void>
+  onLancar: (categoria: string, neutro: boolean) => Promise<void>
+  linhasSalario: () => LinhaSalario[]
+  onDetalharSalario: (linhas: LinhaSalario[]) => Promise<void>
   onTransferir: (outra: string) => Promise<void>
   onIgnorar: (motivo: string) => Promise<void>
   onConfirmado: () => void
@@ -760,6 +831,9 @@ function ItemCaixa({
   const [motivo, setMotivo] = useState(sugestao.acao === 'ignorar' ? sugestao.motivo : '')
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState('')
+  // Adiantamento: par neutro do desconto no contracheque (desmarcar = receita comum)
+  const [neutro, setNeutro] = useState(!!sugestao.neutro)
+  const [detalhando, setDetalhando] = useState<LinhaSalario[] | null>(null)
 
   const categoriasSugeridas = useMemo(
     () =>
@@ -783,7 +857,15 @@ function ItemCaixa({
   // Sugestão tirada do histórico (mesma descrição ou comerciante) já vem marcada
   const forte = categoriasSugeridas.find((c) => /^Mesm[ao] /.test(c.motivo))
   const categoriaEscolhida =
-    categoria ?? (forte ? `${forte.categoria_id}|${forte.subcategoria_id ?? ''}` : '')
+    neutro && sugestao.categoria
+      ? sugestao.categoria
+      : (categoria ?? (forte ? `${forte.categoria_id}|${forte.subcategoria_id ?? ''}` : ''))
+  const nomeCategoria = (chave: string) => {
+    const [cat, sub] = chave.split('|')
+    const c = categorias.find((x) => x.id === cat)?.nome ?? ''
+    const s = subcategorias.find((x) => x.id === sub)?.nome
+    return s ? `${c} / ${s}` : c
+  }
 
   const podeLigar = sugestao.acao === 'ligar' && !!sugestao.lancamentos?.length
   const acoes: Acao[] = [
@@ -802,7 +884,7 @@ function ItemCaixa({
     setErro('')
     try {
       if (acaoAtual === 'ligar') await onLigar(sugestao.lancamentos ?? [], sugestao.motivo)
-      else if (acaoAtual === 'lancar') await onLancar(categoriaEscolhida)
+      else if (acaoAtual === 'lancar') await onLancar(categoriaEscolhida, neutro)
       else if (acaoAtual === 'transferencia') await onTransferir(outra)
       else await onIgnorar(motivo)
       onConfirmado()
@@ -871,7 +953,35 @@ function ItemCaixa({
           </div>
         )}
 
-        {acaoAtual === 'lancar' && (
+        {acaoAtual === 'lancar' && sugestao.detalharSalario && (
+          <BotaoSecundario
+            type="button"
+            onClick={() => setDetalhando(linhasSalario())}
+            className="min-h-11"
+          >
+            Detalhar salário
+          </BotaoSecundario>
+        )}
+
+        {acaoAtual === 'lancar' && sugestao.neutro && (
+          <label className="flex min-h-11 items-center gap-2 text-sm text-texto">
+            <input
+              type="checkbox"
+              checked={neutro}
+              onChange={(e) => setNeutro(e.target.checked)}
+              className="h-4 w-4 accent-primaria"
+            />
+            Neutro: adiantamento que o contracheque desconta
+          </label>
+        )}
+
+        {acaoAtual === 'lancar' && neutro && sugestao.categoria && (
+          <p className="rounded-lg bg-fundo px-3 py-2 text-sm text-texto">
+            Lança em {nomeCategoria(sugestao.categoria)}, sem contar como receita do mês.
+          </p>
+        )}
+
+        {acaoAtual === 'lancar' && !neutro && (
           <>
             <div className="grid gap-2 sm:grid-cols-3">
               {categoriasSugeridas.map((s) => {
@@ -973,6 +1083,20 @@ function ItemCaixa({
         </BotaoPrimario>
       </div>
       {erro && <p className="mt-2 text-sm text-despesa">{erro}</p>}
+      {detalhando && (
+        <DetalharSalario
+          valorBanco={t.valor}
+          linhasIniciais={detalhando}
+          categorias={categorias}
+          subcategorias={subcategorias}
+          nomeConta={nomeConta}
+          onFechar={() => setDetalhando(null)}
+          onConfirmar={async (linhas) => {
+            await onDetalharSalario(linhas)
+            setDetalhando(null)
+          }}
+        />
+      )}
     </li>
   )
 }
