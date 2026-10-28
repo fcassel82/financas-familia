@@ -6,10 +6,8 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
 import { buscarTudo } from '@/lib/buscarTudo'
 import {
-  chaveCompetencia,
   diasAte,
   hojeISO,
-  limitesCompetencia,
   moeda,
   rotuloDia,
   rotuloMesLongo,
@@ -30,6 +28,7 @@ import {
 } from '@/lib/regra503020'
 import { IconeBanco, IconeGrafico, IconeImportar, IconeMais } from '@/components/Icones'
 import { EstadoVazio, LinhaLink, Pagina, Seta } from '@/components/ui'
+import { janelaDosMeses, mesDoLancamento } from '@/lib/mesSalario'
 import { linkResumo } from '@/lib/resumo'
 
 type Pendencia = {
@@ -43,6 +42,7 @@ type Pendencia = {
 type Movimento = {
   id: string
   data: string
+  categoria_id: string | null
   descricao: string
   valor: number
   tipo: string
@@ -71,7 +71,8 @@ export default function InicioPage() {
   const [qtdBancos, setQtdBancos] = useState(0)
 
   const hoje = hojeISO()
-  const mesAtual = chaveCompetencia(hoje)
+  // Mês do calendário; só a folha de pagamento segue o mês do salário (ver lib/mesSalario)
+  const mesAtual = hoje.slice(0, 7)
 
   useEffect(() => {
     async function carregar() {
@@ -88,7 +89,7 @@ export default function InicioPage() {
         .single()
       setNome(perfil?.nome ?? '')
 
-      const { inicio, fim } = limitesCompetencia(mesAtual)
+      const { inicio, fim } = janelaDosMeses(mesAtual, mesAtual)
       const limiteLembrete = somarDias(hojeISO(), 7)
 
       const [
@@ -101,6 +102,7 @@ export default function InicioPage() {
         { count: semOrigem },
         { count: semCategoria },
         { count: semSubcategoria },
+        { data: categoriasFolha },
       ] = await Promise.all([
         supabase.from('contas').select('id, nome, cor, saldo_inicial, tipo').order('nome'),
         buscarTudo((de, ate) =>
@@ -113,7 +115,7 @@ export default function InicioPage() {
         ),
         supabase
           .from('transacoes')
-          .select('id, data, descricao, valor, tipo, categorias(nome), contas(nome, cor)')
+          .select('id, data, descricao, valor, tipo, categoria_id, categorias(nome), contas(nome, cor)')
           .eq('status', 'pago')
           .is('transferencia_id', null)
           // O pagamento agregado de uma fatura de cartão é a mesma despesa das
@@ -170,6 +172,7 @@ export default function InicioPage() {
           .is('transferencia_id', null)
           .is('fatura_cartao_id', null)
           .eq('neutro', false),
+        supabase.from('categorias').select('id').eq('segue_mes_salario', true),
       ])
 
       const lista = (contasData ?? []) as Conta[]
@@ -183,7 +186,11 @@ export default function InicioPage() {
       }
       setSaldos(acumulado)
 
-      setDoMes((movimentosMes ?? []) as unknown as Movimento[])
+      // A janela traz a folha do fim do mês anterior; cada lançamento fica no seu mês
+      const folha = new Set((categoriasFolha ?? []).map((c) => c.id as string))
+      const doMesAtual = <T extends { data: string; categoria_id: string | null }>(l: T) =>
+        mesDoLancamento(l.data, l.categoria_id, folha) === mesAtual
+      setDoMes(((movimentosMes ?? []) as unknown as Movimento[]).filter(doMesAtual))
       setLembretes((pendencias ?? []) as Pendencia[])
       setQtdPendencias((semOrigem ?? 0) + (semCategoria ?? 0) + (semSubcategoria ?? 0))
 
@@ -191,7 +198,7 @@ export default function InicioPage() {
         ((subcategorias ?? []) as Subcategoria[]).map((s) => [s.id, s])
       )
       const contaTipoMap = new Map(lista.map((c) => [c.id, c.tipo]))
-      setRegua(calcular(transacoesRegua ?? [], subcategoriaMap, contaTipoMap))
+      setRegua(calcular((transacoesRegua ?? []).filter(doMesAtual), subcategoriaMap, contaTipoMap))
 
       setCarregando(false)
 
@@ -260,8 +267,8 @@ export default function InicioPage() {
     return Array.from(mapa.entries())
   }, [doMes])
 
-  const { inicio: inicioMes, fim: fimMes } = limitesCompetencia(mesAtual)
-  const periodo = `${diaEMes(inicioMes)} a ${diaEMes(fimMes)}`
+  const janela = janelaDosMeses(mesAtual, mesAtual)
+  const filtroMes = { de: janela.inicio, ate: janela.fim, meses: [mesAtual] }
 
   const dataExtenso = new Date().toLocaleDateString('pt-BR', {
     weekday: 'long',
@@ -296,8 +303,7 @@ export default function InicioPage() {
               Neste mês entraram{' '}
               <Link
                 href={linkResumo({
-                  de: inicioMes,
-                  ate: fimMes,
+                  ...filtroMes,
                   regra: 'resultado',
                   tipo: 'receita',
                   titulo: 'Entradas do mês',
@@ -309,8 +315,7 @@ export default function InicioPage() {
               e saíram{' '}
               <Link
                 href={linkResumo({
-                  de: inicioMes,
-                  ate: fimMes,
+                  ...filtroMes,
                   regra: 'resultado',
                   tipo: 'despesa',
                   titulo: 'Saídas do mês',
@@ -334,7 +339,7 @@ export default function InicioPage() {
               </span>
             </p>
             <p className="mt-1 text-xs text-texto-suave">
-              Mês de competência: {periodo}, por causa do salário que cai no fim do mês.
+              Salário e descontos da folha que caem a partir do dia 26 contam para o mês seguinte.
             </p>
           </section>
 
@@ -369,7 +374,7 @@ export default function InicioPage() {
             </Link>
           )}
 
-          <ReguaMes resultado={regua} de={inicioMes} ate={fimMes} />
+          <ReguaMes resultado={regua} filtroMes={filtroMes} />
 
           {/* Contas a vencer */}
           <section className="cartao p-4">
@@ -567,12 +572,10 @@ export default function InicioPage() {
  */
 function ReguaMes({
   resultado,
-  de,
-  ate,
+  filtroMes,
 }: {
   resultado: Resultado | null
-  de: string
-  ate: string
+  filtroMes: { de: string; ate: string; meses: string[] }
 }) {
   if (!resultado) return null
   const base = resultado.rendaLiquida
@@ -664,7 +667,7 @@ function ReguaMes({
           return (
             <li key={g}>
               <Link
-                href={linkResumo({ de, ate, regra: '503020', grupo: g, titulo: ROTULO_GRUPO[g] })}
+                href={linkResumo({ ...filtroMes, regra: '503020', grupo: g, titulo: ROTULO_GRUPO[g] })}
                 className="-mx-2 grid grid-cols-[0.75rem_1fr_auto_auto] items-center gap-x-2.5 gap-y-0.5 rounded-lg px-2 py-2.5 transition-colors hover:bg-fundo"
               >
                 <span className="h-3 w-3 rounded-sm" style={{ backgroundColor: COR_GRUPO[g] }} />
@@ -694,9 +697,7 @@ function ReguaMes({
         {resultado.naoClassificado > 0 && (
           <li>
             <Link
-              href={linkResumo({
-                de,
-                ate,
+              href={linkResumo({ ...filtroMes,
                 regra: '503020',
                 grupo: 'sem',
                 titulo: 'Sem grupo 50/30/20',
@@ -751,11 +752,6 @@ function moedaComSinal(valor: number): string {
   return `${valor >= 0 ? '+' : '−'}${moeda(Math.abs(valor))}`
 }
 
-/** "2026-09-26" → "26 de set." */
-function diaEMes(iso: string): string {
-  const [ano, mes, dia] = iso.split('-').map(Number)
-  return new Date(ano, mes - 1, dia).toLocaleDateString('pt-BR', { day: 'numeric', month: 'short' })
-}
 
 function classeChipVencimento(iso: string): string {
   const base = 'inline-flex rounded-full px-2.5 py-0.5 text-sm font-medium'

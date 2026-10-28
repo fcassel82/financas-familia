@@ -9,6 +9,7 @@
  * Imports relativos de propósito: o Vitest testa este arquivo sem o alias "@/".
  */
 import { chaveCompetencia, deslocarMes } from './formato'
+import { mesDoLancamento } from './mesSalario'
 
 export type RegraResumo = 'resultado' | '503020' | 'conta'
 export type GrupoResumo = 'necessidade' | 'desejo' | 'investimento' | 'deducao' | 'sem'
@@ -17,6 +18,11 @@ export type MovimentoResumo = 'rendimento' | 'aporte_empresa' | 'aplicado' | 're
 export type FiltroResumo = {
   de: string
   ate: string
+  /**
+   * Meses ("aaaa-mm") pela regra do mês do salário. Quando existe, decide quem
+   * entra; de/ate viram só o intervalo de busca (janelaDosMeses).
+   */
+  meses?: string[]
   regra: RegraResumo
   tipo?: 'receita' | 'despesa'
   categoria?: string
@@ -64,6 +70,8 @@ export type ContextoResumo = {
   tipoDaConta: Map<string, string>
   /** transferencia_id → conta de onde saiu e conta onde chegou */
   contaDaTransferencia: Map<string, { origem: string | null; destino: string | null }>
+  /** Categorias marcadas como "Segue o mês do salário" */
+  categoriasSalario: Set<string>
 }
 
 export const CAMPOS_LANCAMENTO_RESUMO =
@@ -91,6 +99,7 @@ export function linkResumo(f: FiltroResumo): string {
   const p = new URLSearchParams()
   p.set('de', f.de)
   p.set('ate', f.ate)
+  if (f.meses?.length) p.set('meses', f.meses.join(','))
   if (f.regra !== 'resultado') p.set('regra', f.regra)
   if (f.tipo) p.set('tipo', f.tipo)
   if (f.categoria) p.set('categoria', f.categoria)
@@ -114,6 +123,8 @@ export function lerFiltroResumo(p: URLSearchParams): FiltroResumo | null {
   const ate = p.get('ate')
   if (!de || !ate) return null
   const f: FiltroResumo = { de, ate, regra: escolher(p.get('regra'), REGRAS) ?? 'resultado' }
+  const meses = lista(p.get('meses'))
+  if (meses) f.meses = meses
   const tipo = escolher(p.get('tipo'), ['receita', 'despesa'] as const)
   if (tipo) f.tipo = tipo
   if (p.get('categoria')) f.categoria = p.get('categoria')!
@@ -167,7 +178,10 @@ function passaRegra(l: LancamentoResumo, f: FiltroResumo, ctx: ContextoResumo): 
 }
 
 export function entraNoResumo(l: LancamentoResumo, f: FiltroResumo, ctx: ContextoResumo): boolean {
-  if (l.status !== 'pago' || l.data < f.de || l.data > f.ate) return false
+  if (l.status !== 'pago') return false
+  if (f.meses) {
+    if (!f.meses.includes(mesDoLancamento(l.data, l.categoria_id, ctx.categoriasSalario))) return false
+  } else if (l.data < f.de || l.data > f.ate) return false
   if (!passaRegra(l, f, ctx)) return false
 
   if (f.tipo && l.tipo !== f.tipo) return false

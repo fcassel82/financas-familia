@@ -64,7 +64,7 @@ function ConteudoResumo() {
 
   const [carregando, setCarregando] = useState(true)
   const [lancamentos, setLancamentos] = useState<LancamentoResumo[]>([])
-  const [categorias, setCategorias] = useState<Nome[]>([])
+  const [categorias, setCategorias] = useState<(Nome & { segue_mes_salario: boolean })[]>([])
   const [subcategorias, setSubcategorias] = useState<Subcategoria[]>([])
   const [contas, setContas] = useState<Conta[]>([])
   const [cartoes, setCartoes] = useState<Nome[]>([])
@@ -88,7 +88,7 @@ function ConteudoResumo() {
               .order('id')
               .range(de, ate)
           ),
-          supabase.from('categorias').select('id, nome'),
+          supabase.from('categorias').select('id, nome, segue_mes_salario'),
           supabase.from('subcategorias').select('id, nome, categoria_id, grupo_503020'),
           supabase.from('contas').select('id, nome, tipo'),
           supabase.from('cartoes_credito').select('id, nome'),
@@ -96,7 +96,7 @@ function ConteudoResumo() {
       if (cancelado) return
       // O Supabase tipa as junções (categorias, contas…) como listas; aqui vem um objeto só
       setLancamentos(lancs as unknown as LancamentoResumo[])
-      setCategorias((cats ?? []) as Nome[])
+      setCategorias((cats ?? []) as (Nome & { segue_mes_salario: boolean })[])
       setSubcategorias((subs ?? []) as Subcategoria[])
       setContas((cts ?? []) as Conta[])
       setCartoes((crts ?? []) as Nome[])
@@ -120,13 +120,14 @@ function ConteudoResumo() {
     }
     const ctx: ContextoResumo = {
       grupoDaSubcategoria: new Map(subcategorias.map((s) => [s.id, s.grupo_503020])),
+      categoriasSalario: new Set(categorias.filter((c) => c.segue_mes_salario).map((c) => c.id)),
       tipoDaConta: new Map(contas.map((c) => [c.id, c.tipo])),
       contaDaTransferencia,
     }
     return lancamentos
       .filter((l) => entraNoResumo(l, filtro, ctx))
       .sort((a, b) => b.data.localeCompare(a.data) || a.descricao.localeCompare(b.descricao))
-  }, [filtro, lancamentos, subcategorias, contas])
+  }, [filtro, lancamentos, subcategorias, contas, categorias])
 
   // Divisão por categoria (ou por subcategoria, quando o filtro já é de uma categoria)
   const divisao = useMemo(() => {
@@ -170,7 +171,7 @@ function ConteudoResumo() {
   const total = filtro.tipo ? Math.abs(somaComSinal) : somaComSinal
   const corTotal =
     filtro.tipo === 'receita' || (!filtro.tipo && total >= 0) ? 'text-receita' : 'text-despesa'
-  const meses = mesesDoIntervalo(filtro.de, filtro.ate)
+  const meses = filtro.meses?.length ?? mesesDoIntervalo(filtro.de, filtro.ate)
   const totalDivisao = divisao.reduce((s, d) => s + d.valor, 0)
 
   const nomeCategoria = categorias.find((c) => c.id === filtro.categoria)?.nome

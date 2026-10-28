@@ -46,6 +46,7 @@ const ctx: ContextoResumo = {
     ['apl', { origem: 'itau', destino: 'itauinv' }],
     ['resg', { origem: 'itauinv', destino: 'itau' }],
   ]),
+  categoriasSalario: new Set(['salario']),
 }
 
 const base: FiltroResumo = { de: '2026-09-26', ate: '2026-10-25', regra: 'resultado' }
@@ -219,6 +220,21 @@ describe('entraNoResumo', () => {
     })
     expect(entraNoResumo(rend, f, ctx)).toBe(true)
     expect(entraNoResumo({ ...rend, movimento_investimento: 'aporte_empresa' }, f, ctx)).toBe(false)
+  })
+})
+
+describe('meses pela regra do salário', () => {
+  const maio: FiltroResumo = { de: '2026-04-26', ate: '2026-05-31', meses: ['2026-05'], regra: 'resultado' }
+
+  it('compra de 29/04 fica em abril; salário de 28/04 vai para maio', () => {
+    expect(entraNoResumo(lanc({ data: '2026-04-29' }), maio, ctx)).toBe(false)
+    expect(entraNoResumo(lanc({ data: '2026-05-29' }), maio, ctx)).toBe(true)
+    expect(entraNoResumo(lanc({ data: '2026-04-28', tipo: 'receita', categoria_id: 'salario' }), maio, ctx)).toBe(true)
+    expect(entraNoResumo(lanc({ data: '2026-05-28', tipo: 'receita', categoria_id: 'salario' }), maio, ctx)).toBe(false)
+  })
+
+  it('ida e volta do link mantém os meses', () => {
+    expect(lerFiltroResumo(new URLSearchParams(linkResumo(maio).split('?')[1]))).toEqual(maio)
   })
 })
 
