@@ -11,6 +11,7 @@ cole o conteúdo do arquivo e rode. Não precisa de CLI.
 | `20261025_veiculo_pessoal_rls.sql` | Abastecimentos e manutenções de veículo pessoal só aparecem para o dono e o administrador. | ✅ aplicada em 25/10/2026 |
 | `20261025_lancado_por_automatico.sql` | Preenche os 110 lançamentos sem autor com o dono; o banco passa a definir o autor sozinho (não dá para trocar na edição) e o campo fica obrigatório. | ✅ aplicada em 25/10/2026 |
 | `20261026_bancos_pluggy.sql` | Notas fiscais como registro próprio (itens apontam para a nota); contas e caixa de entrada do Meu Pluggy, só para o administrador. | ✅ aplicada em 26/10/2026 |
+| `20261027_segue_mes_salario.sql` | Categorias da folha (salário, descontos, benefícios) seguem o mês do salário; o resto segue o calendário. | ✅ aplicada em 27/10/2026 |
 
 ## Como conferir que deu certo
 
