@@ -5,6 +5,7 @@ import {
   dataLocal,
   idsDasConexoes,
   listarContas,
+  listarInvestimentos,
   listarTransacoes,
   variaveisFaltando,
 } from '@/lib/pluggy'
@@ -39,6 +40,7 @@ export async function POST(request: NextRequest) {
 
   let novas = 0
   let contas = 0
+  let investimentos = 0
   const erros: string[] = []
 
   for (const itemId of idsDasConexoes()) {
@@ -66,6 +68,32 @@ export async function POST(request: NextRequest) {
     if (erroContas) {
       erros.push(`Não foi possível guardar as contas da conexão ${itemId.slice(0, 8)}….`)
       continue
+    }
+
+    // Saldo dos investimentos; a ligação com a conta do app (conta_id) e o
+    // "Não acompanhar" (acompanhar) não vão no payload, então ficam como estão
+    try {
+      const doItem = await listarInvestimentos(itemId)
+      if (doItem.length > 0) {
+        const { error } = await supabase.from('investimentos_banco').upsert(
+          doItem.map((i) => ({
+            id: i.id,
+            item_id: itemId,
+            nome: i.name,
+            tipo: i.type,
+            subtipo: i.subtype,
+            saldo: Number(i.balance ?? 0),
+            data_saldo: i.date ? dataLocal(i.date) : hoje,
+            situacao: i.status,
+            atualizado_em: new Date().toISOString(),
+          })),
+          { onConflict: 'id' }
+        )
+        if (error) throw new Error('Não foi possível guardar os investimentos.')
+      }
+      investimentos += doItem.length
+    } catch (e) {
+      erros.push(`Investimentos da conexão ${itemId.slice(0, 8)}…: ${(e as Error).message}`)
     }
 
     for (const conta of contasDoItem) {
@@ -119,5 +147,5 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  return NextResponse.json({ novas, contas, erros })
+  return NextResponse.json({ novas, contas, investimentos, erros })
 }

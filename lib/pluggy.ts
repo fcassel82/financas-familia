@@ -39,6 +39,18 @@ export type TransacaoPluggy = {
   } | null
 }
 
+export type InvestimentoPluggy = {
+  id: string
+  itemId: string
+  type: string
+  subtype: string | null
+  name: string
+  /** Saldo bruto atual, antes do IR */
+  balance: number | null
+  date: string | null
+  status: string | null
+}
+
 let chaveEmCache: { valor: string; ate: number } | null = null
 
 export function idsDasConexoes(): string[] {
@@ -116,6 +128,19 @@ export async function listarTransacoes(
     consulta = proxima ? `${proxima}&dateFrom=${de}&dateTo=${ate}` : null
   }
   return todas
+}
+
+/** Investimentos de uma conexão (CDB, fundos, Tesouro…), seguindo todas as páginas */
+export async function listarInvestimentos(itemId: string): Promise<InvestimentoPluggy[]> {
+  const todos: InvestimentoPluggy[] = []
+  for (let pagina = 1; pagina <= MAXIMO_PAGINAS; pagina++) {
+    const resposta: { results?: InvestimentoPluggy[]; totalPages?: number } = await pedir(
+      `/investments?itemId=${encodeURIComponent(itemId)}&page=${pagina}`
+    )
+    todos.push(...(resposta.results ?? []))
+    if (pagina >= (resposta.totalPages ?? 1)) break
+  }
+  return todos
 }
 
 /** Data da transação no fuso de Brasília ("2026-10-25T03:00:00Z" → "2026-10-25") */
