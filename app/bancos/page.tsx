@@ -4,7 +4,13 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabaseClient'
 import { buscarTudo } from '@/lib/buscarTudo'
-import { dataBR, moeda } from '@/lib/formato'
+import { dataBR, moeda, normalizar } from '@/lib/formato'
+import { CAMPOS_LANCAMENTO_INVESTIMENTO, type LancamentoInvestimento } from '@/lib/investimentos'
+import {
+  sugerirRendimentos,
+  type InvestimentoBanco,
+  type SugestaoRendimento,
+} from '@/lib/saldoInvestimentos'
 import {
   sugerirAcao,
   sugestaoContaApp,
@@ -24,9 +30,11 @@ import {
   Pagina,
   classeInput,
 } from '@/components/ui'
+import SaldosInvestimentos from './SaldosInvestimentos'
 
 type ContaBanco = {
   id: string
+  item_id: string
   nome: string
   tipo: string
   numero: string | null
@@ -49,7 +57,17 @@ type TransacaoBanco = {
   situacao: string
   lancamentos: string[]
 }
-type ContaApp = { id: string; nome: string; tipo: string; ativo: boolean; escopo: string }
+type ContaApp = {
+  id: string
+  nome: string
+  tipo: string
+  ativo: boolean
+  escopo: string
+  dono_id: string | null
+  saldo_inicial: number
+  saldo_conferido_em: string | null
+}
+type InvestimentoDoBanco = InvestimentoBanco & { item_id: string }
 type CartaoApp = { id: string; nome: string; ativo: boolean; escopo: string }
 type Categoria = { id: string; nome: string; tipo: string }
 type Subcategoria = { id: string; nome: string; categoria_id: string }
@@ -80,6 +98,9 @@ export default function BancosPage() {
   const [subcategorias, setSubcategorias] = useState<Subcategoria[]>([])
   const [lancamentos, setLancamentos] = useState<Lancamento[]>([])
   const [notas, setNotas] = useState<NotaApp[]>([])
+  const [investimentosBanco, setInvestimentosBanco] = useState<InvestimentoDoBanco[]>([])
+  const [lancsInvestimento, setLancsInvestimento] = useState<LancamentoInvestimento[]>([])
+  const [ligacoesInv, setLigacoesInv] = useState<Record<string, string>>({})
   const [ligacoes, setLigacoes] = useState<Record<string, string>>({})
   const [editandoLigacoes, setEditandoLigacoes] = useState(false)
   const [buscando, setBuscando] = useState(false)
@@ -99,10 +120,10 @@ export default function BancosPage() {
       return
     }
 
-    const [cb, tb, ct, cr, cat, sub, lan, nf] = await Promise.all([
+    const [cb, tb, ct, cr, cat, sub, lan, nf, ib] = await Promise.all([
       supabase
         .from('contas_banco')
-        .select('id, nome, tipo, numero, saldo, conta_id, cartao_id, ultima_busca')
+        .select('id, item_id, nome, tipo, numero, saldo, conta_id, cartao_id, ultima_busca')
         .order('nome'),
       buscarTudo((de, ate) =>
         supabase
@@ -113,7 +134,10 @@ export default function BancosPage() {
           .order('id')
           .range(de, ate)
       ),
-      supabase.from('contas').select('id, nome, tipo, ativo, escopo').order('nome'),
+      supabase
+        .from('contas')
+        .select('id, nome, tipo, ativo, escopo, dono_id, saldo_inicial, saldo_conferido_em')
+        .order('nome'),
       supabase.from('cartoes_credito').select('id, nome, ativo, escopo').order('nome'),
       supabase.from('categorias').select('id, nome, tipo').order('nome'),
       supabase.from('subcategorias').select('id, nome, categoria_id').order('nome'),
@@ -121,7 +145,24 @@ export default function BancosPage() {
         supabase.from('transacoes').select(CAMPOS_LANCAMENTO).order('id').range(de, ate)
       ),
       supabase.from('notas_fiscais').select('id, data, valor_pago'),
+      supabase
+        .from('investimentos_banco')
+        .select('id, item_id, nome, saldo, data_saldo, situacao, conta_id, acompanhar')
+        .order('nome'),
     ])
+
+    const contasApp = (ct.data ?? []) as ContaApp[]
+    const idsInvestimento = contasApp.filter((c) => c.tipo === 'investimento').map((c) => c.id)
+    const li = idsInvestimento.length
+      ? await buscarTudo((de, ate) =>
+          supabase
+            .from('transacoes')
+            .select(CAMPOS_LANCAMENTO_INVESTIMENTO)
+            .in('conta_id', idsInvestimento)
+            .order('id')
+            .range(de, ate)
+        )
+      : { data: [] }
 
     const todas = (tb.data ?? []) as TransacaoBanco[]
     setContasBanco((cb.data ?? []) as ContaBanco[])
@@ -131,7 +172,9 @@ export default function BancosPage() {
     setJaLigados(
       new Set(todas.filter((t) => t.situacao !== 'revisar').flatMap((t) => t.lancamentos ?? []))
     )
-    setContas((ct.data ?? []) as ContaApp[])
+    setContas(contasApp)
+    setInvestimentosBanco((ib.data ?? []) as InvestimentoDoBanco[])
+    setLancsInvestimento((li.data ?? []) as LancamentoInvestimento[])
     setCartoes((cr.data ?? []) as CartaoApp[])
     setCategorias((cat.data ?? []) as Categoria[])
     setSubcategorias((sub.data ?? []) as Subcategoria[])
@@ -182,7 +225,30 @@ export default function BancosPage() {
   }
 
   const semLigacao = contasBanco.filter((c) => !c.conta_id && !c.cartao_id)
-  const mostrarLigacoes = editandoLigacoes || semLigacao.length > 0
+  // Resgatado e zerado não precisa de ligação
+  const investimentosVisiveis = investimentosBanco.filter(
+    (i) => !(i.situacao === 'TOTAL_WITHDRAWAL' && Number(i.saldo) === 0)
+  )
+  const invSemLigacao = investimentosVisiveis.filter((i) => !i.conta_id && i.acompanhar)
+  const mostrarLigacoes = editandoLigacoes || semLigacao.length > 0 || invSemLigacao.length > 0
+  const contasInvestimento = contas.filter((c) => c.ativo && c.tipo === 'investimento')
+
+  // Investimento do banco: a ligação salva, "Não acompanhar", ou a conta de
+  // investimento do app com o nome da conta corrente da mesma conexão (Itaú → Itaú Investimento)
+  const escolhaDoInvestimento = (i: InvestimentoDoBanco) => {
+    if (ligacoesInv[i.id] !== undefined) return ligacoesInv[i.id]
+    if (i.conta_id) return `conta:${i.conta_id}`
+    if (!i.acompanhar) return 'nao'
+    for (const cb of contasBanco) {
+      if (cb.item_id !== i.item_id || !cb.conta_id) continue
+      const nomeCorrente = normalizar(contas.find((c) => c.id === cb.conta_id)?.nome ?? '')
+      const achada = nomeCorrente
+        ? contasInvestimento.find((c) => normalizar(c.nome).includes(nomeCorrente))
+        : undefined
+      if (achada) return `conta:${achada.id}`
+    }
+    return ''
+  }
 
   // Escolha de cada conta do banco: a já salva ou a sugestão pelo nome
   const escolhaDaLigacao = (c: ContaBanco) =>
@@ -216,7 +282,22 @@ export default function BancosPage() {
         return
       }
     }
+    for (const i of investimentosVisiveis) {
+      const escolha = escolhaDoInvestimento(i)
+      const { error } = await supabase
+        .from('investimentos_banco')
+        .update({
+          conta_id: escolha.startsWith('conta:') ? escolha.slice(6) : null,
+          acompanhar: escolha !== 'nao',
+        })
+        .eq('id', i.id)
+      if (error) {
+        setMensagem('Não foi possível salvar as ligações. Tente novamente.')
+        return
+      }
+    }
     setLigacoes({})
+    setLigacoesInv({})
     setEditandoLigacoes(false)
     setMensagem('Ligações salvas.')
     await carregar()
@@ -251,6 +332,56 @@ export default function BancosPage() {
     }
     return mapa
   }, [caixa, itemDe, ctx])
+
+  // Aplicação ou resgate ainda na caixa: a diferença de saldo pode ser ela, não rendimento
+  const rendimentos = useMemo(() => {
+    const bloqueadas = new Set<string>()
+    for (const s of sugestoes.values()) {
+      if (s.acao === 'transferencia' && s.contaDestino) bloqueadas.add(s.contaDestino)
+    }
+    return sugerirRendimentos(
+      contas.filter((c) => c.tipo === 'investimento'),
+      investimentosBanco,
+      lancsInvestimento,
+      bloqueadas
+    )
+  }, [contas, investimentosBanco, lancsInvestimento, sugestoes])
+
+  /** Igual ao "Atualizar saldo" sem aporte: a diferença vira rendimento ou desvalorização */
+  async function lancarRendimento(s: SugestaoRendimento) {
+    setMensagem('')
+    const conta = contas.find((c) => c.id === s.contaId)!
+    const linha = {
+      conta_id: conta.id,
+      data: s.data,
+      descricao: s.diferenca > 0 ? 'Rendimento' : 'Desvalorização',
+      tipo: s.diferenca > 0 ? 'receita' : 'despesa',
+      valor: Math.abs(s.diferenca),
+      status: 'pago',
+      neutro: true,
+      movimento_investimento: 'rendimento',
+      escopo: conta.escopo,
+      dono_id: conta.dono_id ?? userId,
+    }
+    const { data, error } = await supabase
+      .from('transacoes')
+      .insert(linha)
+      .select(CAMPOS_LANCAMENTO_INVESTIMENTO)
+      .single()
+    if (error || !data) {
+      setMensagem('Não foi possível lançar o rendimento. Tente novamente.')
+      return
+    }
+    await supabase
+      .from('contas')
+      .update({ saldo_conferido_em: s.data })
+      .eq('id', conta.id)
+    setLancsInvestimento((atual) => [...atual, data as unknown as LancamentoInvestimento])
+    setContas((atual) =>
+      atual.map((c) => (c.id === conta.id ? { ...c, saldo_conferido_em: s.data } : c))
+    )
+    setMensagem('Rendimento lançado.')
+  }
 
   /** Tira da lista o que foi confirmado e reserva os lançamentos ligados */
   function concluir(ids: string[], lancamentosUsados: string[]) {
@@ -441,7 +572,8 @@ export default function BancosPage() {
         <section className="cartao mb-5 p-4">
           <h2 className="text-base font-semibold text-texto">Ligar contas</h2>
           <p className="mb-3 text-sm text-texto-suave">
-            Diga a qual conta ou cartão do app corresponde cada conta do banco. É feito uma vez só.
+            Diga a qual conta, cartão ou investimento do app corresponde cada item do banco. É feito
+            uma vez só.
           </p>
           <ul className="divide-y divide-borda">
             {contasBanco.map((c) => (
@@ -472,6 +604,39 @@ export default function BancosPage() {
               </li>
             ))}
           </ul>
+          {investimentosVisiveis.length > 0 && (
+            <>
+              <h3 className="mt-4 text-sm font-semibold text-texto">Investimentos</h3>
+              <ul className="divide-y divide-borda">
+                {investimentosVisiveis.map((i) => (
+                  <li key={i.id} className="grid gap-2 py-3 sm:grid-cols-2 sm:items-center">
+                    <span>
+                      <span className="block font-medium text-texto">{i.nome}</span>
+                      <span className="block text-sm text-texto-suave">
+                        Saldo {moeda(Number(i.saldo))} em {dataBR(i.data_saldo)}
+                      </span>
+                    </span>
+                    <select
+                      className={classeInput}
+                      value={escolhaDoInvestimento(i)}
+                      onChange={(e) =>
+                        setLigacoesInv((atual) => ({ ...atual, [i.id]: e.target.value }))
+                      }
+                      aria-label={`Conta de investimento do app para ${i.nome}`}
+                    >
+                      <option value="">Não ligar agora</option>
+                      <option value="nao">Não acompanhar</option>
+                      {contasInvestimento.map((c) => (
+                        <option key={c.id} value={`conta:${c.id}`}>
+                          {c.nome}
+                        </option>
+                      ))}
+                    </select>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
           <div className="mt-3 flex justify-end">
             <BotaoPrimario type="button" onClick={salvarLigacoes} className="min-h-11">
               Salvar ligações
@@ -489,6 +654,8 @@ export default function BancosPage() {
           Editar ligações das contas
         </button>
       )}
+
+      <SaldosInvestimentos sugestoes={rendimentos} onLancar={lancarRendimento} />
 
       {caixa.length === 0 ? (
         <EstadoVazio titulo="Nada para revisar. A próxima busca traz o que for novo." />
