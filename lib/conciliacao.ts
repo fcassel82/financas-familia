@@ -36,6 +36,9 @@ export type LancamentoApp = {
   transferencia_id: string | null
   fatura_cartao_id: string | null
   criado_em: string
+  categoria_id?: string | null
+  subcategoria_id?: string | null
+  neutro?: boolean
 }
 
 export type NotaApp = { id: string; data: string; valor_pago: number }
@@ -47,6 +50,8 @@ export type ContextoConciliacao = {
   nomeDaContaApp: (id: string) => string
   /** Lançamentos já ligados a outra transação do banco (não podem ligar de novo) */
   jaLigados: Set<string>
+  /** Categorias que seguem o mês do salário (folha de pagamento) */
+  categoriasFolha?: Set<string>
 }
 
 export type Sugestao = {
@@ -59,6 +64,20 @@ export type Sugestao = {
   origem?: string
   contaDestino?: string
   detalharNota?: boolean
+  /** Lançar como neutro (adiantamento salarial), com a categoria já escolhida ("categoriaId|subId") */
+  neutro?: boolean
+  categoria?: string
+  /** Crédito do salário: abrir as linhas do contracheque */
+  detalharSalario?: boolean
+}
+
+/** Crédito da folha numa conta ("Salário COMPANHIA ESTADUAL…") */
+export function ehSalario(item: ItemBanco): boolean {
+  return (
+    item.tipo === 'receita' &&
+    item.contaBanco.tipo !== 'CREDIT' &&
+    normalizar(item.descricao).includes('salario')
+  )
 }
 
 /**
@@ -242,6 +261,57 @@ export function sugerirAcao(item: ItemBanco, ctx: ContextoConciliacao): Sugestao
         motivo: `${melhor.itens.length} itens de nota do mesmo dia`,
         lancamentos: melhor.itens.map((l) => l.id),
         diferenca: melhor.diferenca,
+      }
+    }
+  }
+
+  // 6b. Salário e adiantamento (spec 2026-10-28-detalhar-salario)
+  if (ehSalario(item)) {
+    const folha = ctx.categoriasFolha ?? new Set<string>()
+    const daConta = ctx.lancamentos.filter(
+      (l) =>
+        l.conta_id === item.contaBanco.conta_id &&
+        l.status === 'pago' &&
+        !l.fatura_cartao_id &&
+        !ctx.jaLigados.has(l.id)
+    )
+    const ehFolha = (l: LancamentoApp) => !!l.categoria_id && folha.has(l.categoria_id)
+
+    // Contracheque já lançado à mão: tudo da conta no dia (folha, saúde, previdência,
+    // adiantamento neutro) dá o líquido que o banco creditou
+    const dias = [
+      ...new Set(
+        daConta.filter((l) => ehFolha(l) && diasEntre(l.data, item.data) <= 3).map((l) => l.data)
+      ),
+    ].sort((a, b) => diasEntre(a, item.data) - diasEntre(b, item.data))
+    for (const dia of dias) {
+      const linhas = daConta.filter((l) => l.data === dia)
+      const liquido = linhas.reduce(
+        (s, l) => s + (l.tipo === 'receita' ? 1 : -1) * centavos(l.valor),
+        0
+      )
+      if (Math.abs(liquido - alvo) <= 1) {
+        return {
+          acao: 'ligar',
+          motivo: `Salário já detalhado (${linhas.length} linhas)`,
+          lancamentos: linhas.map((l) => l.id),
+        }
+      }
+    }
+
+    if (Number(item.data.slice(8, 10)) > 20) {
+      return { acao: 'lancar', motivo: 'Salário: detalhar o contracheque', detalharSalario: true }
+    }
+    // Adiantamento: par neutro, com a categoria do último adiantamento recebido
+    const ultimo = ctx.lancamentos
+      .filter((l) => l.tipo === 'receita' && l.neutro && ehFolha(l))
+      .sort((a, b) => b.data.localeCompare(a.data))[0]
+    if (ultimo) {
+      return {
+        acao: 'lancar',
+        motivo: 'Adiantamento salarial (neutro)',
+        neutro: true,
+        categoria: `${ultimo.categoria_id}|${ultimo.subcategoria_id ?? ''}`,
       }
     }
   }

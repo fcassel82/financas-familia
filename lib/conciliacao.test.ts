@@ -278,3 +278,92 @@ describe('linhaDeSaldoAnterior', () => {
     expect(linhaDeSaldoAnterior('Multa por fatura atrasada')).toBe(false)
   })
 })
+
+// Contracheque de 28/08 como está no app: folha, saúde, previdência (transferência) e o adiantamento neutro
+const FOLHA = new Set(['sal', 'desc'])
+const contracheque: LancamentoApp[] = [
+  lanc({ id: 'base', data: '2026-08-28', tipo: 'receita', valor: 8454.03, categoria_id: 'sal' }),
+  lanc({ id: 'peric', data: '2026-08-28', tipo: 'receita', valor: 2536.21, categoria_id: 'sal' }),
+  lanc({ id: 'anuenio', data: '2026-08-28', tipo: 'receita', valor: 1465.07, categoria_id: 'sal' }),
+  lanc({ id: 'irrf', data: '2026-08-28', valor: 1951.34, categoria_id: 'desc' }),
+  lanc({ id: 'inss', data: '2026-08-28', valor: 988.07, categoria_id: 'desc' }),
+  lanc({ id: 'odonto', data: '2026-08-28', valor: 19.2, categoria_id: 'saude' }),
+  lanc({ id: 'aux', data: '2026-08-28', valor: 10, categoria_id: 'desc' }),
+  lanc({ id: 'convenio', data: '2026-08-28', valor: 366.89, categoria_id: 'saude' }),
+  lanc({ id: 'prev', data: '2026-08-28', valor: 498.21, transferencia_id: 'tp' }),
+  lanc({
+    id: 'adiant',
+    data: '2026-08-28',
+    valor: 2536.21,
+    categoria_id: 'desc',
+    subcategoria_id: 'adiantamento',
+    neutro: true,
+  }),
+]
+const SALARIO = 'Salário COMPANHIA ESTADUAL DE DISTRIBUICAO DE ENERGIA ELETRICA - CEEE-D'
+
+describe('sugerirAcao: salário e adiantamento', () => {
+  it('liga ao contracheque já detalhado quando as linhas somam o líquido', () => {
+    const s = sugerirAcao(
+      item({ data: '2026-08-29', descricao: SALARIO, valor: 6085.39, tipo: 'receita' }),
+      ctx({ lancamentos: contracheque, categoriasFolha: FOLHA })
+    )
+    expect(s.acao).toBe('ligar')
+    expect(s.lancamentos?.sort()).toEqual(contracheque.map((l) => l.id).sort())
+  })
+
+  it('linha já ligada a outra transação não entra na soma', () => {
+    const s = sugerirAcao(
+      item({ data: '2026-08-29', descricao: SALARIO, valor: 6085.39, tipo: 'receita' }),
+      ctx({ lancamentos: contracheque, categoriasFolha: FOLHA, jaLigados: new Set(['odonto']) })
+    )
+    expect(s.acao).not.toBe('ligar')
+  })
+
+  it('adiantamento do dia 15 vira lançamento neutro com a categoria do histórico', () => {
+    const s = sugerirAcao(
+      item({ data: '2026-10-15', descricao: SALARIO, valor: 2536.21, tipo: 'receita' }),
+      ctx({
+        lancamentos: [
+          lanc({
+            id: 'ad8',
+            data: '2026-08-14',
+            tipo: 'receita',
+            valor: 2536.21,
+            categoria_id: 'desc',
+            subcategoria_id: 'adiantamento',
+            neutro: true,
+          }),
+        ],
+        categoriasFolha: FOLHA,
+      })
+    )
+    expect(s).toMatchObject({ acao: 'lancar', neutro: true, categoria: 'desc|adiantamento' })
+  })
+
+  it('adiantamento sem histórico neutro é um lançamento comum', () => {
+    const s = sugerirAcao(
+      item({ data: '2026-10-15', descricao: SALARIO, valor: 2536.21, tipo: 'receita' }),
+      ctx({ categoriasFolha: FOLHA })
+    )
+    expect(s.acao).toBe('lancar')
+    expect(s.neutro).toBeFalsy()
+  })
+
+  it('salário do fim do mês sem linhas no app sugere detalhar', () => {
+    const s = sugerirAcao(
+      item({ data: '2026-09-30', descricao: SALARIO, valor: 6202.22, tipo: 'receita' }),
+      ctx({ lancamentos: contracheque, categoriasFolha: FOLHA })
+    )
+    expect(s).toMatchObject({ acao: 'lancar', detalharSalario: true })
+  })
+
+  it('despesa com "salário" na descrição segue as regras comuns', () => {
+    const s = sugerirAcao(
+      item({ data: '2026-09-30', descricao: 'PIX SALARIO DIARISTA', valor: 300 }),
+      ctx({ categoriasFolha: FOLHA })
+    )
+    expect(s.detalharSalario).toBeFalsy()
+    expect(s.neutro).toBeFalsy()
+  })
+})
