@@ -27,7 +27,8 @@ Data: 27/10/2026 · Status: aprovado pelo Fred no chat
 | Relatórios | meses 26→25 | meses pelo `mesDoLancamento`; período "Entre datas" continua por data pura |
 | Calculadora 50/30/20 | `chaveCompetencia` em tudo | `mesDoLancamento` |
 | Investimentos | aplicações e histórico 26→25 | mês do calendário (não é folha) |
-| Resumo | filtro por datas | novo parâmetro `meses` (lista de "aaaa-mm"): entra o lançamento cujo `mesDoLancamento` está na lista; a média por mês usa a quantidade de meses |
+| Categorias | — | caixa "Segue o mês do salário" por categoria (administrador); os demais veem a etiqueta |
+| Resumo | filtro por datas | novo parâmetro `meses` (lista de "aaaa-mm"): entra o lançamento cujo `mesDoLancamento` está na lista; a média por mês usa a quantidade de meses; sem `meses`, conta meses do calendário |
 | Extrato, Faturas | calendário / ciclo do cartão | sem mudança |
 
 O texto do Início "Mês de competência: …" passa a ser "Salário e descontos da folha que caem a partir do dia 26 contam para o mês seguinte."

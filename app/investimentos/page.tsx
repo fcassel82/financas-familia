@@ -4,14 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabaseClient'
 import { buscarTudo } from '@/lib/buscarTudo'
-import {
-  chaveCompetencia,
-  dataBR,
-  hojeISO,
-  limitesCompetencia,
-  moeda,
-  rotuloMesLongo,
-} from '@/lib/formato'
+import { dataBR, hojeISO, limitesDoMes, moeda, rotuloMesLongo } from '@/lib/formato'
 import {
   CAMPOS_LANCAMENTO_INVESTIMENTO,
   dataUltimaAtualizacao,
@@ -65,7 +58,7 @@ export default function InvestimentosPage() {
 
   const hoje = hojeISO()
   const ano = Number(hoje.slice(0, 4))
-  const mesAtual = chaveCompetencia(hoje)
+  const mesAtual = hoje.slice(0, 7)
 
   const carregar = useCallback(async () => {
     // Quem vê cada investimento é a regra de acesso da conta: familiar todos,
@@ -135,8 +128,8 @@ export default function InvestimentosPage() {
   // Somas desta tela abrem o Resumo com tudo o que aconteceu dentro das contas
   const doAno = { de: `${ano}-01-01`, ate: `${ano}-12-31`, regra: 'conta' as const }
   const doMesAtual = {
-    de: limitesCompetencia(mesAtual).inicio,
-    ate: limitesCompetencia(mesAtual).fim,
+    de: limitesDoMes(mesAtual).inicio,
+    ate: limitesDoMes(mesAtual).fim,
     regra: 'conta' as const,
   }
 
@@ -332,7 +325,7 @@ const COLUNAS: {
   { campo: 'rendimento', rotulo: 'Rendeu', movimento: 'rendimento' },
 ]
 
-/** Histórico por mês de competência: só mostra os valores que existem no mês */
+/** Histórico por mês do calendário: só mostra os valores que existem no mês */
 function Historico({
   linhas,
   conta,
@@ -360,8 +353,8 @@ function Historico({
                 <li key={campo}>
                   <Link
                     href={linkResumo({
-                      de: limitesCompetencia(linha.chave).inicio,
-                      ate: limitesCompetencia(linha.chave).fim,
+                      de: limitesDoMes(linha.chave).inicio,
+                      ate: limitesDoMes(linha.chave).fim,
                       regra: 'conta',
                       conta,
                       movimento,

@@ -20,10 +20,8 @@ import {
 import { supabase } from '@/lib/supabaseClient'
 import { buscarTudo } from '@/lib/buscarTudo'
 import {
-  chaveCompetencia,
   chaveMes,
   deslocarMes,
-  limitesCompetencia,
   limitesDoMes,
   moeda,
   rotuloMesCurto,
@@ -33,6 +31,7 @@ import {
 import { IconeSeta } from '@/components/Icones'
 import { CabecalhoPagina, LinhaLink, Pagina, Seta, SeletorMultiplo } from '@/components/ui'
 import { linkResumo, type FiltroResumo } from '@/lib/resumo'
+import { janelaDosMeses, mesDoLancamento } from '@/lib/mesSalario'
 import {
   CAMPOS_TRANSACAO_CALC,
   COR_GRUPO,
@@ -78,8 +77,15 @@ type ItemDetalhe = { id: string; nome: string; valor: number }
 const ID_APORTES = '__aportes__'
 
 /** Do primeiro ao último dia dos meses de competência informados */
-function limitesParaFiltro(primeiro: string, ultimo: string): { de: string; ate: string } {
-  return { de: limitesCompetencia(primeiro).inicio, ate: limitesCompetencia(ultimo).fim }
+/** Filtro do Resumo para os meses de `primeiro` a `ultimo` (regra do mês do salário) */
+function limitesParaFiltro(
+  primeiro: string,
+  ultimo: string
+): { de: string; ate: string; meses: string[] } {
+  const { inicio, fim } = janelaDosMeses(primeiro, ultimo)
+  const meses = [primeiro]
+  while (meses[meses.length - 1] < ultimo) meses.push(deslocarMes(meses[meses.length - 1], 1))
+  return { de: inicio, ate: fim, meses }
 }
 
 function passaQuem(t: TransacaoCalc, selecionados: string[]): boolean {
@@ -349,17 +355,21 @@ export default function Calculadora503020Page() {
   const [transacoes, setTransacoes] = useState<TransacaoCalc[]>([])
   const [subcategoriaMap, setSubcategoriaMap] = useState<Map<string, Subcategoria>>(new Map())
   const [contaTipoMap, setContaTipoMap] = useState<Map<string, string>>(new Map())
+  // Categorias da folha de pagamento: seguem o mês do salário (ver lib/mesSalario)
+  const [folha, setFolha] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     async function carregarListas() {
-      const [{ data: subs }, { data: contas }, { data: perfis }] = await Promise.all([
+      const [{ data: subs }, { data: contas }, { data: perfis }, { data: cats }] = await Promise.all([
         supabase.from('subcategorias').select('id, categoria_id, nome, grupo_503020'),
         supabase.from('contas').select('id, tipo'),
         supabase.from('perfis').select('id, nome').order('nome'),
+        supabase.from('categorias').select('id').eq('segue_mes_salario', true),
       ])
       if (subs) setSubcategoriaMap(new Map(subs.map((s) => [s.id, s as Subcategoria])))
       if (contas) setContaTipoMap(new Map(contas.map((c) => [c.id, c.tipo])))
       if (perfis) setMembros(perfis)
+      if (cats) setFolha(new Set(cats.map((c) => c.id as string)))
     }
     carregarListas()
   }, [])
@@ -371,7 +381,7 @@ export default function Calculadora503020Page() {
       const { inicio: inicioCalendario } = limitesDoMes(inicioJanela)
       // O salário cai perto do fim do mês mas já conta pro mês de competência
       // seguinte — sem essa folga, perderíamos o salário do fim do mês anterior
-      // ao início da janela (ver chaveCompetencia)
+      // ao início da janela (ver lib/mesSalario)
       const inicio = somarDias(inicioCalendario, -7)
       const { fim } = limitesDoMes(mesAtual)
 
@@ -401,17 +411,17 @@ export default function Calculadora503020Page() {
     [transacoes, quemFiltro]
   )
 
-  // Agrupa tudo por mês de competência (não mês calendário) uma única vez
+  // Agrupa tudo por mês uma única vez: a folha pelo mês do salário, o resto pelo calendário
   const porCompetencia = useMemo(() => {
     const mapa = new Map<string, TransacaoCalc[]>()
     for (const t of transacoesFiltradas) {
-      const chave = chaveCompetencia(t.data)
+      const chave = mesDoLancamento(t.data, t.categoria_id, folha)
       const lista = mapa.get(chave)
       if (lista) lista.push(t)
       else mapa.set(chave, [t])
     }
     return mapa
-  }, [transacoesFiltradas])
+  }, [transacoesFiltradas, folha])
 
   const chavesLongo = useMemo(() => {
     const chaves: string[] = []
@@ -595,9 +605,9 @@ export default function Calculadora503020Page() {
           />
         </div>
       </div>
-      <p className="-mt-2 mb-6 text-[11px] text-texto-suave">
-        Mês de competência, não calendário: o salário que cai no fim de um mês já conta como renda do mês
-        seguinte, junto com os gastos dele.
+      <p className="-mt-2 mb-6 text-xs text-texto-suave">
+        Salário e descontos da folha que caem a partir do dia 26 contam como renda do mês seguinte. As
+        demais despesas seguem o mês do calendário.
       </p>
 
       {/* KPIs de renda */}

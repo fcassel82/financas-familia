@@ -8,7 +8,7 @@
  *
  * Imports relativos de propósito: o Vitest testa este arquivo sem o alias "@/".
  */
-import { chaveCompetencia, deslocarMes } from './formato'
+import { deslocarMes } from './formato'
 import { mesDoLancamento } from './mesSalario'
 
 export type RegraResumo = 'resultado' | '503020' | 'conta'
@@ -227,10 +227,10 @@ export function entraNoResumo(l: LancamentoResumo, f: FiltroResumo, ctx: Context
   return true
 }
 
-/** Quantos meses de competência o período cobre (para a média por mês) */
+/** Quantos meses do calendário o período cobre (para a média por mês) */
 export function mesesDoIntervalo(de: string, ate: string): number {
-  const fim = chaveCompetencia(ate)
-  let chave = chaveCompetencia(de)
+  const fim = ate.slice(0, 7)
+  let chave = de.slice(0, 7)
   let n = 1
   while (chave < fim && n < 1200) {
     chave = deslocarMes(chave, 1)

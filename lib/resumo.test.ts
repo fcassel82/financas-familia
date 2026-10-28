@@ -239,9 +239,10 @@ describe('meses pela regra do salário', () => {
 })
 
 describe('mesesDoIntervalo', () => {
-  it('conta meses de competência', () => {
-    expect(mesesDoIntervalo('2026-04-26', '2026-10-25')).toBe(6)
-    expect(mesesDoIntervalo('2026-09-26', '2026-10-25')).toBe(1)
+  it('conta meses do calendário', () => {
+    expect(mesesDoIntervalo('2026-01-01', '2026-12-31')).toBe(12)
+    expect(mesesDoIntervalo('2026-10-01', '2026-10-31')).toBe(1)
+    expect(mesesDoIntervalo('2026-04-15', '2026-06-10')).toBe(3)
   })
 })
 

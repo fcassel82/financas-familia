@@ -20,6 +20,7 @@ type Categoria = {
   nome: string
   tipo: string
   natureza: string | null
+  segue_mes_salario: boolean
 }
 
 type Subcategoria = {
@@ -71,7 +72,7 @@ export default function CategoriasPage() {
     const userId = userData.user?.id
 
     const [{ data: cats }, { data: subs }, { data: perfil }] = await Promise.all([
-      supabase.from('categorias').select('id, nome, tipo, natureza').order('nome'),
+      supabase.from('categorias').select('id, nome, tipo, natureza, segue_mes_salario').order('nome'),
       supabase.from('subcategorias').select('id, categoria_id, nome, grupo_503020').order('nome'),
       userId
         ? supabase.from('perfis').select('papel').eq('id', userId).single()
@@ -99,6 +100,21 @@ export default function CategoriasPage() {
       return
     }
     setSubcategorias((atual) => atual.map((s) => (s.id === sub.id ? { ...s, grupo_503020: grupo } : s)))
+  }
+
+  async function definirMesSalario(categoria: Categoria, segue: boolean) {
+    setMensagem('')
+    const { error } = await supabase
+      .from('categorias')
+      .update({ segue_mes_salario: segue })
+      .eq('id', categoria.id)
+    if (error) {
+      setMensagem('Não foi possível mudar o mês da categoria. Tente novamente.')
+      return
+    }
+    setCategorias((atual) =>
+      atual.map((c) => (c.id === categoria.id ? { ...c, segue_mes_salario: segue } : c))
+    )
   }
 
   const semGrupo = subcategorias.filter(
@@ -278,6 +294,23 @@ export default function CategoriasPage() {
                       {subs.length} subcategoria{subs.length === 1 ? '' : 's'}
                       {categoria.natureza ? ` · ${categoria.natureza}` : ''}
                     </p>
+                    {isAdmin ? (
+                      <label className="mt-1 flex min-h-11 cursor-pointer items-center gap-2 text-xs text-texto-suave">
+                        <input
+                          type="checkbox"
+                          checked={categoria.segue_mes_salario}
+                          onChange={(e) => definirMesSalario(categoria, e.target.checked)}
+                          className="h-4 w-4 accent-primaria"
+                        />
+                        Segue o mês do salário (a partir do dia 26 conta para o mês seguinte)
+                      </label>
+                    ) : (
+                      categoria.segue_mes_salario && (
+                        <span className="mt-1 inline-block rounded-full bg-primaria/10 px-2 py-0.5 text-xs text-primaria">
+                          Segue o mês do salário
+                        </span>
+                      )
+                    )}
                   </div>
 
                   {isAdmin && (

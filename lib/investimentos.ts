@@ -5,7 +5,7 @@
  *
  * Imports relativos de propósito: o Vitest testa este arquivo sem o alias "@/".
  */
-import { chaveCompetencia, deslocarMes } from './formato'
+import { deslocarMes } from './formato'
 
 export type MovimentoInvestimento = 'rendimento' | 'aporte_empresa'
 
@@ -73,7 +73,7 @@ export function resumoDoAno(
   return { rendeu: centavos(rendeu), aporteEmpresa: centavos(aporteEmpresa) }
 }
 
-/** Movimento por mês de competência, do mais recente ao mais antigo, sem meses vazios */
+/** Movimento por mês do calendário, do mais recente ao mais antigo, sem meses vazios */
 export function historicoPorMes(
   lancs: LancamentoInvestimento[],
   mesAtual: string,
@@ -85,7 +85,8 @@ export function historicoPorMes(
   const porMes = new Map<string, LinhaHistorico>()
   for (const l of lancs) {
     if (l.status !== 'pago') continue
-    const chave = chaveCompetencia(l.data)
+    // Investimento não é folha de pagamento: mês do calendário
+    const chave = l.data.slice(0, 7)
     if (!janela.has(chave)) continue
     const linha = porMes.get(chave) ?? {
       chave,
