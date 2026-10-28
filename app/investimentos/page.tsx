@@ -55,6 +55,7 @@ export default function InvestimentosPage() {
   const [aberto, setAberto] = useState<string | null>(null)
   const [atualizando, setAtualizando] = useState<Investimento | null>(null)
   const [mensagem, setMensagem] = useState('')
+  const [doBanco, setDoBanco] = useState<Set<string>>(new Set())
 
   const hoje = hojeISO()
   const ano = Number(hoje.slice(0, 4))
@@ -87,8 +88,16 @@ export default function InvestimentosPage() {
       lancs = data
     }
 
+    // Só o administrador lê os investimentos do banco; para os outros vem vazio
+    const { data: ligados } = await supabase
+      .from('investimentos_banco')
+      .select('conta_id')
+      .eq('acompanhar', true)
+      .not('conta_id', 'is', null)
+
     setContas(lista)
     setLancamentos(lancs)
+    setDoBanco(new Set((ligados ?? []).map((l) => l.conta_id as string)))
     setCarregando(false)
   }, [])
 
@@ -244,9 +253,14 @@ export default function InvestimentosPage() {
                 </Link>
 
                 <div className="flex items-center justify-between gap-2 px-4 pb-4">
-                  <BotaoSecundario onClick={() => setAtualizando(inv)} className="min-h-11">
-                    Atualizar saldo
-                  </BotaoSecundario>
+                  <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <BotaoSecundario onClick={() => setAtualizando(inv)} className="min-h-11">
+                      Atualizar saldo
+                    </BotaoSecundario>
+                    {doBanco.has(inv.id) && (
+                      <span className="text-xs text-texto-suave">Saldo vem do banco</span>
+                    )}
+                  </span>
                   <button
                     type="button"
                     onClick={() => setAberto((atual) => (atual === inv.id ? null : inv.id))}
