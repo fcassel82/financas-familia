@@ -12,6 +12,7 @@ import { sugerirCategoria } from '@/lib/categorizarProduto'
 import type { NotaFiscal } from '@/lib/parseNfce'
 import { verificarDuplicatasEmLote, type Duplicata } from '@/lib/verificarDuplicata'
 import { dividirEmParcelas } from '@/lib/parcelas'
+import { linhaDeSaldoAnterior } from '@/lib/conciliacao'
 import { IconeImportar } from '@/components/Icones'
 import {
   BotaoPrimario,
@@ -402,6 +403,12 @@ export default function ImportarPage() {
         incluir: true,
       }))
     }
+
+    // Saldo da fatura anterior e crédito do pagamento repetiriam compras já
+    // lançadas: entram desmarcados (a pessoa pode marcar, se quiser)
+    processadas = processadas.map((linha) =>
+      linhaDeSaldoAnterior(linha.descricao) ? { ...linha, incluir: false } : linha
+    )
 
     // Crédito parcelado divide CADA lançamento em N parcelas mensais —
     // vale pra qualquer formato, não só nota fiscal
@@ -1122,6 +1129,13 @@ export default function ImportarPage() {
           </div>
 
           <div className="cartao p-4 sm:p-6">
+            {linhas.some((l) => !l.incluir && linhaDeSaldoAnterior(l.descricao)) && (
+              <p className="mb-3 rounded-lg border border-alerta/30 bg-alerta/10 px-3 py-2 text-sm text-texto">
+                {linhas.filter((l) => !l.incluir && linhaDeSaldoAnterior(l.descricao)).length} linha(s) de
+                saldo ou pagamento da fatura anterior ficaram desmarcadas: elas repetiriam compras que já
+                estão no app. Juros, multa e IOF continuam marcados.
+              </p>
+            )}
             <Mensagem texto={mensagem} />
             <BotaoPrimario onClick={handleSalvar} disabled={salvando} className="mt-3 w-full">
               {salvando ? 'Salvando...' : `Salvar ${linhas.filter((l) => l.incluir).length} lançamentos`}

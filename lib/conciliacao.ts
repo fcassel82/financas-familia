@@ -61,6 +61,15 @@ export type Sugestao = {
   detalharNota?: boolean
 }
 
+/**
+ * Linha de fatura que repete dinheiro já lançado: o saldo da fatura anterior
+ * paga com atraso ("Valor pendente do mês anterior") ou o crédito do pagamento.
+ * As compras dessas faturas já estão no app; juros, multa e IOF continuam valendo.
+ */
+export function linhaDeSaldoAnterior(descricao: string): boolean {
+  return /valor pendente|saldo (da fatura )?anterior|pagamento recebido/i.test(descricao)
+}
+
 const CATEGORIAS_DE_TRANSFERENCIA = new Set([
   'investments',
   'automatic investment',
@@ -112,6 +121,11 @@ function contaDeInvestimento(item: ItemBanco, ctx: ContextoConciliacao): string 
 
 export function sugerirAcao(item: ItemBanco, ctx: ContextoConciliacao): Sugestao {
   const desc = item.descricao
+
+  // 0. Saldo da fatura anterior no cartão: repetiria as compras do mês passado
+  if (item.contaBanco.tipo === 'CREDIT' && linhaDeSaldoAnterior(desc)) {
+    return { acao: 'ignorar', motivo: 'Saldo da fatura anterior' }
+  }
 
   // 1. Pagamento de fatura: as compras já contam no cartão
   if (

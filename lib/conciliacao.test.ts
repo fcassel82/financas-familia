@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  linhaDeSaldoAnterior,
   sugerirAcao,
   sugestaoContaApp,
   tipoDaTransacao,
@@ -102,6 +103,25 @@ describe('sugerirAcao: regras por ordem', () => {
       ctx()
     )
     expect(s).toMatchObject({ acao: 'ignorar', motivo: 'Pagamento de fatura' })
+  })
+
+  it('saldo da fatura anterior no cartão é ignorado; juros não', () => {
+    const cartao = { tipo: 'CREDIT', conta_id: null, cartao_id: 'nu' }
+    expect(
+      sugerirAcao(
+        item({ descricao: 'Valor pendente do mês anterior', valor: 436.6, contaBanco: cartao }),
+        ctx()
+      )
+    ).toMatchObject({
+      acao: 'ignorar',
+      motivo: 'Saldo da fatura anterior',
+    })
+    expect(
+      sugerirAcao(
+        item({ descricao: 'Juros por fatura atrasada', valor: 4.48, contaBanco: cartao }),
+        ctx()
+      ).acao
+    ).toBe('lancar')
   })
 
   it('pagamento dentro do cartão é ignorado', () => {
@@ -247,5 +267,14 @@ describe('sugestaoContaApp', () => {
     expect(
       sugestaoContaApp('OUTROS', 'CREDIT', contas, [{ id: 'nu', nome: 'NuBank Fred' }])
     ).toBeNull()
+  })
+})
+
+describe('linhaDeSaldoAnterior', () => {
+  it('reconhece as linhas de saldo e de pagamento da fatura', () => {
+    expect(linhaDeSaldoAnterior('Valor pendente do mês anterior')).toBe(true)
+    expect(linhaDeSaldoAnterior('Saldo anterior')).toBe(true)
+    expect(linhaDeSaldoAnterior('Pagamento recebido')).toBe(true)
+    expect(linhaDeSaldoAnterior('Multa por fatura atrasada')).toBe(false)
   })
 })
