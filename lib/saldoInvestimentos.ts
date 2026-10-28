@@ -55,10 +55,16 @@ export function sugerirRendimentos(
     const ligados = investimentos.filter((i) => i.conta_id === conta.id && i.acompanhar)
     if (ligados.length === 0) continue
 
+    // Compara na data do saldo do banco: o que o app já tem depois dela
+    // (uma aplicação de hoje, com o saldo do banco de ontem) ainda não está lá
+    const data = ligados
+      .map((i) => i.data_saldo)
+      .sort()
+      .at(-1)!
     const saldoBanco = centavos(ligados.reduce((s, i) => s + Number(i.saldo), 0))
     const saldoApp = saldoDaConta(
       conta.saldo_inicial,
-      lancamentos.filter((l) => l.conta_id === conta.id)
+      lancamentos.filter((l) => l.conta_id === conta.id && l.data <= data)
     )
     const diferenca = centavos(saldoBanco - saldoApp)
     if (Math.abs(diferenca) < 0.01) continue
@@ -69,10 +75,7 @@ export function sugerirRendimentos(
       saldoBanco,
       saldoApp,
       diferenca,
-      data: ligados
-        .map((i) => i.data_saldo)
-        .sort()
-        .at(-1)!,
+      data,
       desde: conta.saldo_conferido_em,
       bloqueada: bloqueadas.has(conta.id),
     })

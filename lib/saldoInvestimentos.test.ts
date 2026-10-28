@@ -108,6 +108,17 @@ describe('sugerirRendimentos', () => {
     expect(r.map((s) => s.contaId)).toEqual(['itau'])
   })
 
+  it('compara na data do saldo do banco: aplicação depois dela não vira desvalorização', () => {
+    const r = sugerirRendimentos(
+      contas,
+      [inv({ saldo: 25100, data_saldo: '2026-10-27' })],
+      [...aplicado, lanc({ data: '2026-10-28', valor: 1000 })],
+      new Set()
+    )
+    expect(r[0].saldoApp).toBe(25000)
+    expect(r[0].diferenca).toBe(100)
+  })
+
   it('só conta os lançamentos da própria conta', () => {
     const r = sugerirRendimentos(
       contas,

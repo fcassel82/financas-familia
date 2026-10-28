@@ -79,7 +79,7 @@ export async function POST(request: NextRequest) {
           doItem.map((i) => ({
             id: i.id,
             item_id: itemId,
-            nome: i.name,
+            nome: i.name || i.subtype || i.type || 'Investimento',
             tipo: i.type,
             subtipo: i.subtype,
             saldo: Number(i.balance ?? 0),

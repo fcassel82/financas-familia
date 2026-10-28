@@ -1,6 +1,6 @@
 # Saldo dos investimentos pelo banco (Meu Pluggy)
 
-Data: 28/10/2026 · Status: em revisão pelo Fred
+Data: 28/10/2026 · Status: aprovado pelo Fred no chat
 
 ## Objetivo
 
@@ -39,7 +39,7 @@ O saldo dos investimentos do Itaú e do C6 chega pela busca diária do Meu Plugg
 
 Para cada conta de investimento do app com pelo menos um investimento ligado e acompanhado:
 - `saldoBanco` = soma de `saldo` dos ligados (resgatados totalmente entram com o saldo que vierem, normalmente 0);
-- `saldoApp` = `saldoDaConta` (já existe em `lib/investimentos.ts`);
+- `saldoApp` = `saldoDaConta` (já existe em `lib/investimentos.ts`), só com os lançamentos até a `data` do saldo do banco (uma aplicação de hoje não vira desvalorização quando o saldo do banco é de ontem);
 - `diferenca` = `saldoBanco − saldoApp`, arredondada em centavos;
 - `data` = a maior `data_saldo` dos ligados;
 - gera sugestão quando `|diferenca| ≥ 0,01`;
