@@ -5,11 +5,9 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabaseClient'
 import { buscarTudo } from '@/lib/buscarTudo'
 import {
-  chaveCompetencia,
   rotuloDia,
   deslocarMes,
   hojeISO,
-  limitesCompetencia,
   moeda,
   normalizar,
   rotuloMesLongo,
@@ -17,6 +15,7 @@ import {
 import { sugerirCategoriaLancamento } from '@/lib/sugerirCategoriaHistorico'
 import { IconeLixeira, IconeMais, IconeSeta } from '@/components/Icones'
 import { linkResumo } from '@/lib/resumo'
+import { janelaDosMeses, mesDoLancamento } from '@/lib/mesSalario'
 import {
   BotaoPrimario,
   BotaoSecundario,
@@ -50,7 +49,7 @@ type Transacao = {
   cartoes_credito: { nome: string; cor: string | null } | null
 }
 
-type Categoria = { id: string; nome: string; tipo: string }
+type Categoria = { id: string; nome: string; tipo: string; segue_mes_salario: boolean }
 type Subcategoria = { id: string; categoria_id: string; nome: string }
 type Membro = { id: string; nome: string }
 type Conta = { id: string; nome: string }
@@ -97,7 +96,8 @@ export default function TransacoesPage() {
   const [isAdmin, setIsAdmin] = useState(false)
   const [userId, setUserId] = useState('')
 
-  const [mes, setMes] = useState(chaveCompetencia(hojeISO()))
+  // Mês do calendário; só a folha de pagamento segue o mês do salário (ver lib/mesSalario)
+  const [mes, setMes] = useState(hojeISO().slice(0, 7))
   const [busca, setBusca] = useState('')
   const [categoriaFiltro, setCategoriaFiltro] = useState('')
   const [subcategoriaFiltro, setSubcategoriaFiltro] = useState('')
@@ -119,7 +119,7 @@ export default function TransacoesPage() {
 
       const [{ data: cats }, { data: subs }, { data: cts }, { data: crts }, { data: perfil }] =
         await Promise.all([
-          supabase.from('categorias').select('id, nome, tipo').order('nome'),
+          supabase.from('categorias').select('id, nome, tipo, segue_mes_salario').order('nome'),
           supabase.from('subcategorias').select('id, categoria_id, nome').order('nome'),
           supabase.from('contas').select('id, nome').order('nome'),
           supabase.from('cartoes_credito').select('id, nome').order('nome'),
@@ -145,7 +145,8 @@ export default function TransacoesPage() {
   }, [])
 
   const carregar = useCallback(async () => {
-    const { inicio, fim } = limitesCompetencia(mes)
+    // A janela traz também a folha paga a partir do dia 26 do mês anterior
+    const { inicio, fim } = janelaDosMeses(mes, mes)
 
     let query = supabase
       .from('transacoes')
@@ -193,15 +194,24 @@ export default function TransacoesPage() {
 
   // Busca rápida: filtra em memória para resposta instantânea.
   // Ignora acentos, para que "dizimo" encontre "Dízimo".
+  const folha = useMemo(
+    () => new Set(categorias.filter((c) => c.segue_mes_salario).map((c) => c.id)),
+    [categorias]
+  )
+  const doMes = useMemo(
+    () => transacoes.filter((t) => mesDoLancamento(t.data, t.categoria_id, folha) === mes),
+    [transacoes, folha, mes]
+  )
+
   const visiveis = useMemo(() => {
     const termo = normalizar(busca.trim())
-    if (!termo) return transacoes
-    return transacoes.filter((t) =>
+    if (!termo) return doMes
+    return doMes.filter((t) =>
       normalizar(
         `${t.descricao} ${t.categorias?.nome ?? ''} ${t.subcategorias?.nome ?? ''}`
       ).includes(termo)
     )
-  }, [transacoes, busca])
+  }, [doMes, busca])
 
   function limparFiltros() {
     setBusca('')
@@ -233,10 +243,11 @@ export default function TransacoesPage() {
 
   // Os cartões de total abrem o Resumo com o mesmo mês, aba e filtros da tela
   function linkDoMes(tipo: 'receita' | 'despesa' | undefined, titulo: string) {
-    const { inicio, fim } = limitesCompetencia(mes)
+    const { inicio, fim } = janelaDosMeses(mes, mes)
     return linkResumo({
       de: inicio,
       ate: fim,
+      meses: [mes],
       regra: 'resultado',
       tipo,
       escopo: aba === 'todos' ? undefined : aba,

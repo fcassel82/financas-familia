@@ -19,16 +19,15 @@ import {
 import { supabase } from '@/lib/supabaseClient'
 import { buscarTudo } from '@/lib/buscarTudo'
 import {
-  chaveCompetencia,
   dataBR,
   deslocarMes,
   hojeISO,
-  limitesCompetencia,
   limitesDoMes,
   moeda,
   rotuloMesCurto,
 } from '@/lib/formato'
 import { linkResumo, type FiltroResumo } from '@/lib/resumo'
+import { janelaDosMeses, mesDoLancamento } from '@/lib/mesSalario'
 import {
   BotaoPrimario,
   BotaoSecundario,
@@ -63,7 +62,7 @@ type TransacaoResumo = {
 }
 
 type Membro = { id: string; nome: string }
-type Categoria = { id: string; nome: string; tipo: string }
+type Categoria = { id: string; nome: string; tipo: string; segue_mes_salario: boolean }
 type Subcategoria = { id: string; categoria_id: string; nome: string }
 type Periodo = 'mes' | '3m' | '6m' | 'ano' | 'personalizado'
 type Escopo = 'todos' | 'familiar' | 'pessoal'
@@ -118,7 +117,7 @@ function mesesDoPeriodo(periodo: Periodo, dataInicioCustom: string, dataFimCusto
     return chaves
   }
 
-  const referencia = chaveCompetencia(hojeISO())
+  const referencia = hojeISO().slice(0, 7)
 
   if (periodo === 'ano') {
     const anoAtual = Number(referencia.slice(0, 4))
@@ -252,7 +251,8 @@ function agruparDespesas(
 }
 
 export default function DashboardPage() {
-  const [transacoes, setTransacoes] = useState<TransacaoResumo[]>([])
+  // Tudo o que veio da busca (inclui a folha do fim do mês anterior ao período)
+  const [transacoesBuscadas, setTransacoes] = useState<TransacaoResumo[]>([])
   const [carregando, setCarregando] = useState(true)
 
   const [periodo, setPeriodo] = useState<Periodo>('6m')
@@ -289,7 +289,7 @@ export default function DashboardPage() {
     }
     async function carregarCategorias() {
       const [{ data: cats }, { data: subs }] = await Promise.all([
-        supabase.from('categorias').select('id, nome, tipo').order('nome'),
+        supabase.from('categorias').select('id, nome, tipo, segue_mes_salario').order('nome'),
         supabase.from('subcategorias').select('id, categoria_id, nome').order('nome'),
       ])
       if (cats) setCategorias(cats)
@@ -337,9 +337,26 @@ export default function DashboardPage() {
     [periodo, dataInicioCustom, dataFimCustom]
   )
 
+  // Só a folha de pagamento segue o mês do salário; o resto, o calendário.
+  // "Entre datas" é por data pura, então não filtra por mês.
+  const folha = useMemo(
+    () => new Set(categorias.filter((c) => c.segue_mes_salario).map((c) => c.id)),
+    [categorias]
+  )
+  const mesDe = useCallback(
+    (t: TransacaoResumo) =>
+      periodo === 'personalizado' ? t.data.slice(0, 7) : mesDoLancamento(t.data, t.categoria_id, folha),
+    [periodo, folha]
+  )
+  const transacoes = useMemo(() => {
+    if (periodo === 'personalizado') return transacoesBuscadas
+    const meses = new Set(mesesChaves)
+    return transacoesBuscadas.filter((t) => meses.has(mesDe(t)))
+  }, [transacoesBuscadas, mesesChaves, periodo, mesDe])
+
   const carregar = useCallback(async () => {
     const dataInicio =
-      periodo === 'personalizado' ? dataInicioCustom : limitesCompetencia(mesesChaves[0]).inicio
+      periodo === 'personalizado' ? dataInicioCustom : janelaDosMeses(mesesChaves[0], mesesChaves[0]).inicio
     const dataFim = periodo === 'personalizado' ? dataFimCustom : hojeISO()
 
     let query = supabase
@@ -473,9 +490,9 @@ export default function DashboardPage() {
   const evolucaoMensal = useMemo(() => {
     const porMes = new Map(mesesChaves.map((chave) => [chave, { receitas: 0, despesas: 0 }]))
     // "Entre datas" é calendário puro (o usuário escolheu as datas); os demais
-    // períodos usam mês de competência (ver chaveCompetencia)
+    // períodos usam o mês de cada lançamento (folha pelo mês do salário, ver lib/mesSalario)
     for (const t of transacoes) {
-      const chaveDoLancamento = periodo === 'personalizado' ? t.data.slice(0, 7) : chaveCompetencia(t.data)
+      const chaveDoLancamento = mesDe(t)
       const bucket = porMes.get(chaveDoLancamento)
       if (!bucket) continue
       if (t.tipo === 'receita') bucket.receitas += Number(t.valor)
@@ -487,7 +504,7 @@ export default function DashboardPage() {
       Receitas: porMes.get(chave)!.receitas,
       Despesas: porMes.get(chave)!.despesas,
     }))
-  }, [transacoes, mesesChaves, periodo])
+  }, [transacoes, mesesChaves, mesDe])
 
   const gastosPorCategoria = useMemo(
     () =>
@@ -536,8 +553,9 @@ export default function DashboardPage() {
   const router = useRouter()
   const filtroBase: FiltroResumo = {
     // Mesmas datas da consulta de carregar()
-    de: periodo === 'personalizado' ? dataInicioCustom : limitesCompetencia(mesesChaves[0]).inicio,
+    de: periodo === 'personalizado' ? dataInicioCustom : janelaDosMeses(mesesChaves[0], mesesChaves[0]).inicio,
     ate: periodo === 'personalizado' ? dataFimCustom : hojeISO(),
+    meses: periodo === 'personalizado' ? undefined : mesesChaves,
     regra: 'resultado',
     escopo: escopoFiltro === 'todos' ? undefined : escopoFiltro,
     dono: isAdmin && membroFiltro ? membroFiltro : undefined,
@@ -565,11 +583,12 @@ export default function DashboardPage() {
   }
 
   function linkDoMes(chave: string, tipo: 'receita' | 'despesa'): string {
-    const mes = periodo === 'personalizado' ? limitesDoMes(chave) : limitesCompetencia(chave)
+    const mes = periodo === 'personalizado' ? limitesDoMes(chave) : janelaDosMeses(chave, chave)
     return linkResumo({
       ...filtroBase,
       de: mes.inicio > filtroBase.de ? mes.inicio : filtroBase.de,
       ate: mes.fim < filtroBase.ate ? mes.fim : filtroBase.ate,
+      meses: periodo === 'personalizado' ? undefined : [chave],
       tipo,
       titulo: `${tipo === 'receita' ? 'Receitas' : 'Despesas'} de ${rotuloMesCurto(chave)}`,
     })
