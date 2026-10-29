@@ -7,6 +7,7 @@
  * Imports relativos de propósito: o Vitest testa este arquivo sem o alias "@/".
  */
 import { normalizar } from './formato'
+import { competenciaDaCompra } from './faturaCartao'
 
 export type ItemBanco = {
   id: string
@@ -39,6 +40,16 @@ export type LancamentoApp = {
   categoria_id?: string | null
   subcategoria_id?: string | null
   neutro?: boolean
+  fatura_competencia?: string | null
+  data_vencimento?: string | null
+}
+
+export type CartaoConciliacao = {
+  id: string
+  nome: string
+  dia_fechamento: number | null
+  dia_vencimento: number | null
+  conta_pagamento_id: string | null
 }
 
 export type NotaApp = { id: string; data: string; valor_pago: number }
@@ -52,10 +63,11 @@ export type ContextoConciliacao = {
   jaLigados: Set<string>
   /** Categorias que seguem o mês do salário (folha de pagamento) */
   categoriasFolha?: Set<string>
+  cartoes?: CartaoConciliacao[]
 }
 
 export type Sugestao = {
-  acao: 'ligar' | 'lancar' | 'transferencia' | 'ignorar'
+  acao: 'ligar' | 'lancar' | 'transferencia' | 'ignorar' | 'pagar'
   motivo: string
   lancamentos?: string[]
   /** Itens de nota somados: banco − soma dos itens */
@@ -69,6 +81,79 @@ export type Sugestao = {
   categoria?: string
   /** Crédito do salário: abrir as linhas do contracheque */
   detalharSalario?: boolean
+  /** Pagar fatura: lançamento da fatura, cartão, mês e quanto as compras somam no app */
+  fatura?: string
+  cartao?: string
+  competencia?: string
+  compras?: number
+  bloqueada?: boolean
+}
+
+/** Débito da conta que paga a fatura de um cartão ("Pagamento de boleto BANCO C6 S.A.") */
+export function ehPagamentoDeFatura(item: ItemBanco): boolean {
+  if (item.contaBanco.tipo === 'CREDIT' || item.tipo !== 'despesa') return false
+  if (/fatura/i.test(item.descricao)) return true
+  const comBanco = !!apelidoDoBanco(item.descricao)
+  return (
+    comBanco &&
+    (/boleto/i.test(item.descricao) || (item.categoria_banco ?? '') === 'Credit card payment')
+  )
+}
+
+function apelidoDoBanco(texto: string): string | undefined {
+  const nome = normalizar(texto)
+  return APELIDOS_DE_BANCO.find(([padrao]) => padrao.test(nome))?.[1]
+}
+
+/** Fatura do app que este débito paga (spec 2026-10-28-pagar-fatura) */
+function sugerirPagamentoDeFatura(item: ItemBanco, ctx: ContextoConciliacao): Sugestao | null {
+  const todos = ctx.cartoes ?? []
+  const apelido = apelidoDoBanco(item.descricao)
+  const cartoes = apelido
+    ? todos.filter((c) => apelidoDoBanco(c.nome) === apelido)
+    : todos.filter((c) => c.conta_pagamento_id && c.conta_pagamento_id === item.contaBanco.conta_id)
+  const ids = new Set(cartoes.map((c) => c.id))
+  const alvo = centavos(item.valor)
+  const faturas = ctx.lancamentos
+    .filter(
+      (l) =>
+        l.fatura_cartao_id &&
+        ids.has(l.fatura_cartao_id) &&
+        !ctx.jaLigados.has(l.id) &&
+        diasEntre(l.data_vencimento ?? l.data, item.data) <= 15
+    )
+    .sort(
+      (a, b) =>
+        diasEntre(a.data_vencimento ?? a.data, item.data) -
+        diasEntre(b.data_vencimento ?? b.data, item.data)
+    )
+
+  const paga = faturas.find((l) => l.status === 'pago' && centavos(l.valor) === alvo)
+  if (paga) return { acao: 'ligar', motivo: `${paga.descricao}, já paga`, lancamentos: [paga.id] }
+
+  const pendente = faturas.find((l) => l.status === 'pendente')
+  if (!pendente) return null
+  const cartao = cartoes.find((c) => c.id === pendente.fatura_cartao_id)!
+  const competencia = (pendente.fatura_competencia ?? pendente.data).slice(0, 7)
+  // Mesma conta da tela Faturas: compras pagas do cartão que caem nesta fatura
+  let compras = 0
+  if (cartao.dia_fechamento && cartao.dia_vencimento) {
+    for (const l of ctx.lancamentos) {
+      if (l.cartao_id !== cartao.id || l.status !== 'pago') continue
+      if (competenciaDaCompra(l.data, cartao.dia_fechamento, cartao.dia_vencimento) !== competencia)
+        continue
+      compras += (l.tipo === 'despesa' ? 1 : -1) * centavos(l.valor)
+    }
+  }
+  return {
+    acao: 'pagar',
+    motivo: `Paga a ${pendente.descricao}`,
+    fatura: pendente.id,
+    cartao: cartao.nome,
+    competencia,
+    compras: compras / 100,
+    bloqueada: Math.abs(alvo - compras) > 1,
+  }
 }
 
 /** Crédito da folha numa conta ("Salário COMPANHIA ESTADUAL…") */
@@ -146,12 +231,18 @@ export function sugerirAcao(item: ItemBanco, ctx: ContextoConciliacao): Sugestao
     return { acao: 'ignorar', motivo: 'Saldo da fatura anterior' }
   }
 
-  // 1. Pagamento de fatura: as compras já contam no cartão
-  if (
-    item.pagamento_cartao ||
-    (item.contaBanco.tipo !== 'CREDIT' && item.tipo === 'despesa' && /fatura/i.test(desc))
-  ) {
+  // 1. Pagamento de fatura. No cartão, o crédito do pagamento não é compra nem estorno;
+  // na conta, o débito paga (ou liga) a fatura do app, que tira do saldo sem ser despesa
+  if (item.contaBanco.tipo === 'CREDIT' && item.pagamento_cartao) {
     return { acao: 'ignorar', motivo: 'Pagamento de fatura' }
+  }
+  if (ehPagamentoDeFatura(item)) {
+    const sugestao = sugerirPagamentoDeFatura(item, ctx)
+    if (sugestao) return sugestao
+    // Boleto de banco sem fatura no app pode ser outra conta: segue as regras comuns
+    if (/fatura/i.test(desc)) {
+      return { acao: 'ignorar', motivo: 'Pagamento de fatura (fatura não está no app)' }
+    }
   }
 
   // 2. Rendimento da conta ("REND PAGO APLIC" não é aplicação)
@@ -322,7 +413,7 @@ export function sugerirAcao(item: ItemBanco, ctx: ContextoConciliacao): Sugestao
 
 const APELIDOS_DE_BANCO: [RegExp, string][] = [
   [/nu pagamentos|nubank|\bnu\b/, 'nubank'],
-  [/itau/, 'itau'],
+  [/itau|uniclass|personnalite|signature/, 'itau'],
   [/\bc6\b/, 'c6'],
   [/banrisul/, 'banrisul'],
   [/mercado pago/, 'mercado pago'],

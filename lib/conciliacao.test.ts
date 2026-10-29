@@ -93,7 +93,7 @@ describe('tipoDaTransacao', () => {
 })
 
 describe('sugerirAcao: regras por ordem', () => {
-  it('débito automático de fatura é ignorado, mesmo com categoria de investimento', () => {
+  it('débito automático de fatura sem fatura no app é ignorado, mesmo com categoria de investimento', () => {
     const s = sugerirAcao(
       item({
         descricao: 'Débito automático Fatura Uniclass Signature',
@@ -102,7 +102,10 @@ describe('sugerirAcao: regras por ordem', () => {
       }),
       ctx()
     )
-    expect(s).toMatchObject({ acao: 'ignorar', motivo: 'Pagamento de fatura' })
+    expect(s).toMatchObject({
+      acao: 'ignorar',
+      motivo: 'Pagamento de fatura (fatura não está no app)',
+    })
   })
 
   it('saldo da fatura anterior no cartão é ignorado; juros não', () => {
@@ -365,5 +368,166 @@ describe('sugerirAcao: salário e adiantamento', () => {
     )
     expect(s.detalharSalario).toBeFalsy()
     expect(s.neutro).toBeFalsy()
+  })
+})
+
+// Cartões como estão no app: o C6 não tem conta de pagamento cadastrada
+const cartoes = [
+  { id: 'c6card', nome: 'C6', dia_fechamento: 4, dia_vencimento: 10, conta_pagamento_id: null },
+  {
+    id: 'itaucard',
+    nome: 'Itaú Visa',
+    dia_fechamento: 3,
+    dia_vencimento: 10,
+    conta_pagamento_id: 'itau',
+  },
+  {
+    id: 'nucard',
+    nome: 'NuBank Fred',
+    dia_fechamento: 31,
+    dia_vencimento: 8,
+    conta_pagamento_id: 'nufred',
+  },
+]
+function fatura(parcial: Partial<LancamentoApp>): LancamentoApp {
+  return lanc({
+    conta_id: null,
+    status: 'pendente',
+    fatura_cartao_id: 'c6card',
+    fatura_competencia: '2026-10-01',
+    data: '2026-10-10',
+    data_vencimento: '2026-10-10',
+    ...parcial,
+  })
+}
+const compraC6 = (valor: number, data = '2026-09-20') =>
+  lanc({ id: `compra${valor}`, data, valor, conta_id: null, cartao_id: 'c6card' })
+
+describe('sugerirAcao: pagamento de fatura', () => {
+  const boletoC6 = (data: string, valor: number) =>
+    item({
+      data,
+      descricao: 'Pagamento de boleto BANCO C6 S.A.',
+      valor,
+      categoria_banco: 'Credit card payment',
+    })
+
+  it('boleto do C6 liga à fatura já paga com o mesmo valor', () => {
+    const paga = fatura({
+      id: 'fset',
+      status: 'pago',
+      conta_id: 'itau',
+      valor: 273.72,
+      data: '2026-09-10',
+      data_vencimento: '2026-09-10',
+      fatura_competencia: '2026-09-01',
+    })
+    const s = sugerirAcao(boletoC6('2026-09-11', 273.72), ctx({ lancamentos: [paga], cartoes }))
+    expect(s).toMatchObject({ acao: 'ligar', lancamentos: ['fset'] })
+  })
+
+  it('débito automático Uniclass vai para a fatura do Itaú Visa', () => {
+    const f = fatura({ id: 'fitau', fatura_cartao_id: 'itaucard', valor: 100 })
+    const compra = lanc({
+      id: 'ci',
+      data: '2026-09-20',
+      valor: 100,
+      conta_id: null,
+      cartao_id: 'itaucard',
+    })
+    const s = sugerirAcao(
+      item({
+        data: '2026-10-13',
+        descricao: 'Débito automático Fatura Uniclass Signature',
+        valor: 100,
+      }),
+      ctx({ lancamentos: [f, compra, fatura({ id: 'fc6', valor: 100 })], cartoes })
+    )
+    expect(s).toMatchObject({ acao: 'pagar', fatura: 'fitau', bloqueada: false })
+  })
+
+  it('"Pagamento de fatura" sem nome de banco usa o cartão pago por aquela conta', () => {
+    const f = fatura({
+      id: 'fnu',
+      fatura_cartao_id: 'nucard',
+      valor: 50,
+      data_vencimento: '2026-10-08',
+    })
+    const compra = lanc({
+      id: 'cn',
+      data: '2026-09-15',
+      valor: 50,
+      conta_id: null,
+      cartao_id: 'nucard',
+    })
+    const s = sugerirAcao(
+      item({
+        data: '2026-10-07',
+        descricao: 'Pagamento de fatura',
+        valor: 50,
+        contaBanco: { tipo: 'BANK', conta_id: 'nufred', cartao_id: null },
+      }),
+      ctx({ lancamentos: [f, compra], cartoes })
+    )
+    expect(s).toMatchObject({ acao: 'pagar', fatura: 'fnu', bloqueada: false })
+  })
+
+  it('pendente com as compras batendo libera o pagamento', () => {
+    const s = sugerirAcao(
+      boletoC6('2026-10-08', 148.52),
+      ctx({
+        lancamentos: [
+          fatura({ id: 'f', valor: 40.9 }),
+          compraC6(40.9),
+          compraC6(107.62, '2026-10-02'),
+        ],
+        cartoes,
+      })
+    )
+    expect(s).toMatchObject({ acao: 'pagar', fatura: 'f', compras: 148.52, bloqueada: false })
+  })
+
+  it('pendente com compras faltando fica bloqueada', () => {
+    const s = sugerirAcao(
+      boletoC6('2026-10-08', 148.52),
+      ctx({
+        lancamentos: [
+          fatura({ id: 'f', valor: 40.9 }),
+          compraC6(40.9),
+          compraC6(500, '2026-10-20'),
+        ],
+        cartoes,
+      })
+    )
+    expect(s).toMatchObject({ acao: 'pagar', compras: 40.9, bloqueada: true })
+  })
+
+  it('fatura já ligada a outra transação não é reaproveitada', () => {
+    const s = sugerirAcao(
+      item({
+        data: '2026-10-13',
+        descricao: 'Débito automático Fatura Uniclass Signature',
+        valor: 100,
+      }),
+      ctx({
+        lancamentos: [fatura({ id: 'fitau', fatura_cartao_id: 'itaucard' })],
+        cartoes,
+        jaLigados: new Set(['fitau']),
+      })
+    )
+    expect(s).toMatchObject({ acao: 'ignorar' })
+  })
+
+  it('"fatura" sem fatura no app continua ignorada', () => {
+    const s = sugerirAcao(item({ descricao: 'Pagamento de fatura', valor: 80 }), ctx({ cartoes }))
+    expect(s.acao).toBe('ignorar')
+  })
+
+  it('boleto de outra empresa segue as regras comuns', () => {
+    const s = sugerirAcao(
+      item({ descricao: 'Pagamento de boleto VERO SANTO ANTONIO DA PATRULHA', valor: 124.68 }),
+      ctx({ lancamentos: [fatura({ id: 'f', valor: 124.68 })], cartoes })
+    )
+    expect(s.acao).toBe('lancar')
   })
 })
