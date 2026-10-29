@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabaseClient'
 import { buscarTudo } from '@/lib/buscarTudo'
-import { dataBR, moeda, normalizar } from '@/lib/formato'
+import { dataBR, moeda, normalizar, rotuloMesLongo } from '@/lib/formato'
 import { CAMPOS_LANCAMENTO_INVESTIMENTO, type LancamentoInvestimento } from '@/lib/investimentos'
 import {
   sugerirRendimentos,
@@ -70,7 +70,15 @@ type ContaApp = {
   saldo_conferido_em: string | null
 }
 type InvestimentoDoBanco = InvestimentoBanco & { item_id: string }
-type CartaoApp = { id: string; nome: string; ativo: boolean; escopo: string }
+type CartaoApp = {
+  id: string
+  nome: string
+  ativo: boolean
+  escopo: string
+  dia_fechamento: number | null
+  dia_vencimento: number | null
+  conta_pagamento_id: string | null
+}
 type Categoria = { id: string; nome: string; tipo: string; segue_mes_salario: boolean }
 type Subcategoria = { id: string; nome: string; categoria_id: string }
 type Lancamento = LancamentoApp & Historico
@@ -81,10 +89,11 @@ const ROTULO_ACAO: Record<Acao, string> = {
   ligar: 'Ligar',
   transferencia: 'Transferência',
   ignorar: 'Ignorar',
+  pagar: 'Pagar fatura',
 }
 
 const CAMPOS_LANCAMENTO =
-  'id, data, descricao, valor, tipo, status, escopo, dono_id, conta_id, cartao_id, categoria_id, subcategoria_id, parcela_total, nota_fiscal_id, transferencia_id, fatura_cartao_id, criado_em, neutro'
+  'id, data, descricao, valor, tipo, status, escopo, dono_id, conta_id, cartao_id, categoria_id, subcategoria_id, parcela_total, nota_fiscal_id, transferencia_id, fatura_cartao_id, criado_em, neutro, fatura_competencia, data_vencimento'
 
 export default function BancosPage() {
   const [carregando, setCarregando] = useState(true)
@@ -140,7 +149,10 @@ export default function BancosPage() {
         .from('contas')
         .select('id, nome, tipo, ativo, escopo, dono_id, saldo_inicial, saldo_conferido_em')
         .order('nome'),
-      supabase.from('cartoes_credito').select('id, nome, ativo, escopo').order('nome'),
+      supabase
+        .from('cartoes_credito')
+        .select('id, nome, ativo, escopo, dia_fechamento, dia_vencimento, conta_pagamento_id')
+        .order('nome'),
       supabase.from('categorias').select('id, nome, tipo, segue_mes_salario').order('nome'),
       supabase.from('subcategorias').select('id, nome, categoria_id').order('nome'),
       buscarTudo((de, ate) =>
@@ -317,8 +329,16 @@ export default function BancosPage() {
     [categorias]
   )
   const ctx: ContextoConciliacao = useMemo(
-    () => ({ lancamentos, notas, contas, nomeDaContaApp: nomeConta, jaLigados, categoriasFolha }),
-    [lancamentos, notas, contas, nomeConta, jaLigados, categoriasFolha]
+    () => ({
+      lancamentos,
+      notas,
+      contas,
+      nomeDaContaApp: nomeConta,
+      jaLigados,
+      categoriasFolha,
+      cartoes,
+    }),
+    [lancamentos, notas, contas, nomeConta, jaLigados, categoriasFolha, cartoes]
   )
 
   const itemDe = useCallback(
@@ -512,6 +532,17 @@ export default function BancosPage() {
     concluir([t.id], ids)
     setMensagem(`Salário lançado em ${linhas.length} linhas.`)
     await carregar()
+  }
+
+  /** A fatura do app vira paga com o débito do banco: sai do saldo da conta, sem ser despesa */
+  async function pagarFatura(t: TransacaoBanco, faturaId: string) {
+    const cb = contaBancoPorId.get(t.conta_banco_id)!
+    const mudanca = { status: 'pago', conta_id: cb.conta_id, data: t.data, valor: t.valor }
+    const { error } = await supabase.from('transacoes').update(mudanca).eq('id', faturaId)
+    if (error) throw error
+    await marcar(t, 'ligada', [faturaId], 'Fatura paga')
+    setLancamentos((atual) => atual.map((l) => (l.id === faturaId ? { ...l, ...mudanca } : l)))
+    concluir([t.id], [faturaId])
   }
 
   async function transferir(t: TransacaoBanco, outra: string) {
@@ -771,6 +802,7 @@ export default function BancosPage() {
                           linhasSalario={() => montarLinhasSalario(itemDe(t)!, lancamentos, categoriasFolha)}
                           onDetalharSalario={(linhas) => detalharSalario(t, linhas)}
                           onTransferir={(outra) => transferir(t, outra)}
+                          onPagar={(fatura) => pagarFatura(t, fatura)}
                           onIgnorar={(motivo) => ignorar(t, motivo)}
                           onConfirmado={() => setMensagem('Confirmado.')}
                         />
@@ -802,6 +834,7 @@ function ItemCaixa({
   linhasSalario,
   onDetalharSalario,
   onTransferir,
+  onPagar,
   onIgnorar,
   onConfirmado,
 }: {
@@ -819,6 +852,7 @@ function ItemCaixa({
   linhasSalario: () => LinhaSalario[]
   onDetalharSalario: (linhas: LinhaSalario[]) => Promise<void>
   onTransferir: (outra: string) => Promise<void>
+  onPagar: (fatura: string) => Promise<void>
   onIgnorar: (motivo: string) => Promise<void>
   onConfirmado: () => void
 }) {
@@ -869,6 +903,7 @@ function ItemCaixa({
 
   const podeLigar = sugestao.acao === 'ligar' && !!sugestao.lancamentos?.length
   const acoes: Acao[] = [
+    ...(sugestao.acao === 'pagar' && sugestao.fatura ? (['pagar'] as Acao[]) : []),
     'lancar',
     ...(podeLigar ? (['ligar'] as Acao[]) : []),
     ...(podeTransferir ? (['transferencia'] as Acao[]) : []),
@@ -886,6 +921,7 @@ function ItemCaixa({
       if (acaoAtual === 'ligar') await onLigar(sugestao.lancamentos ?? [], sugestao.motivo)
       else if (acaoAtual === 'lancar') await onLancar(categoriaEscolhida, neutro)
       else if (acaoAtual === 'transferencia') await onTransferir(outra)
+      else if (acaoAtual === 'pagar') await onPagar(sugestao.fatura!)
       else await onIgnorar(motivo)
       onConfirmado()
     } catch {
@@ -894,7 +930,9 @@ function ItemCaixa({
     }
   }
 
-  const pronto = acaoAtual !== 'transferencia' || !!outra
+  const pronto =
+    (acaoAtual !== 'transferencia' || !!outra) && (acaoAtual !== 'pagar' || !sugestao.bloqueada)
+  const faltam = Math.round((t.valor - (sugestao.compras ?? 0)) * 100) / 100
 
   return (
     <li className="cartao p-4">
@@ -949,6 +987,28 @@ function ItemCaixa({
                 {sugestao.diferenca ? ` (diferença de ${moeda(Math.abs(sugestao.diferenca))})` : ''}
                 , sem criar outro lançamento.
               </>
+            )}
+          </div>
+        )}
+
+        {acaoAtual === 'pagar' && (
+          <div className="rounded-lg bg-fundo px-3 py-2 text-sm text-texto">
+            <p>
+              Fatura {sugestao.cartao} de{' '}
+              {rotuloMesLongo(sugestao.competencia ?? '').toLowerCase()}: compras no app{' '}
+              {moeda(sugestao.compras ?? 0)} · banco {moeda(t.valor)}
+            </p>
+            {sugestao.bloqueada ? (
+              <p className="mt-1 text-alerta">
+                {faltam > 0
+                  ? `Faltam ${moeda(faltam)} em compras do ${sugestao.cartao} nesta fatura. Confirme as compras desse cartão aqui na caixa; o pagamento libera quando bater.`
+                  : `As compras do ${sugestao.cartao} nesta fatura somam ${moeda(-faltam)} a mais que o pago.`}
+              </p>
+            ) : (
+              <p className="mt-1 text-texto-suave">
+                A fatura passa a paga com este débito: sai do saldo da conta, sem contar como
+                despesa.
+              </p>
             )}
           </div>
         )}
