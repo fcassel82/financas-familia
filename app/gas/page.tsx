@@ -27,7 +27,11 @@ type Troca = {
   observacoes: string | null
 }
 
+// Lançamento de Moradia › Gás que ainda não virou troca de botijão
+type LancamentoGas = { id: string; data: string; descricao: string; valor: number }
+
 const FORM_VAZIO = {
+  transacao_id: null as string | null,
   data: hojeISO(),
   valor: '',
   quantidade: '1',
@@ -47,15 +51,48 @@ export default function GasPage() {
   const [form, setForm] = useState(FORM_VAZIO)
   const [salvando, setSalvando] = useState(false)
   const [mensagem, setMensagem] = useState('')
+  const [semTroca, setSemTroca] = useState<LancamentoGas[]>([])
 
   const carregar = useCallback(async () => {
-    const { data } = await supabase
-      .from('trocas_gas')
-      .select('id, data, valor, quantidade, fornecedor, observacoes')
-      .order('data', { ascending: false })
-    setTrocas((data ?? []) as Troca[])
+    const [{ data }, { data: subs }] = await Promise.all([
+      supabase
+        .from('trocas_gas')
+        .select('id, data, valor, quantidade, fornecedor, observacoes, transacao_id')
+        .order('data', { ascending: false }),
+      supabase.from('subcategorias').select('id, nome, categorias!inner(nome)').eq('nome', 'Gás'),
+    ])
+    const lista = (data ?? []) as (Troca & { transacao_id: string | null })[]
+    setTrocas(lista)
+
+    // Como nos Veículos: o lançamento de gás aparece aqui até virar uma troca
+    const subGas = ((subs ?? []) as unknown as { id: string; categorias: { nome: string } }[]).find(
+      (s) => s.categorias?.nome === 'Moradia'
+    )
+    if (subGas) {
+      const vinculados = new Set(lista.map((t) => t.transacao_id).filter(Boolean))
+      const { data: lancs } = await supabase
+        .from('transacoes')
+        .select('id, data, descricao, valor')
+        .eq('subcategoria_id', subGas.id)
+        .eq('status', 'pago')
+        .order('data', { ascending: false })
+      setSemTroca(((lancs ?? []) as LancamentoGas[]).filter((l) => !vinculados.has(l.id)))
+    }
     setCarregando(false)
   }, [])
+
+  function registrarDoLancamento(l: LancamentoGas) {
+    setEditandoId(null)
+    setForm({
+      ...FORM_VAZIO,
+      transacao_id: l.id,
+      data: l.data,
+      valor: String(l.valor),
+      fornecedor: l.descricao,
+    })
+    setMensagem('')
+    setModalAberto(true)
+  }
 
   useEffect(() => {
     // Busca de dados: o estado só muda depois do await da consulta, mas a regra
@@ -122,6 +159,7 @@ export default function GasPage() {
   function abrirEdicao(t: Troca) {
     setEditandoId(t.id)
     setForm({
+      transacao_id: null,
       data: t.data,
       valor: String(t.valor),
       quantidade: String(t.quantidade ?? 1),
@@ -150,7 +188,9 @@ export default function GasPage() {
 
     const { error } = editandoId
       ? await supabase.from('trocas_gas').update(registro).eq('id', editandoId)
-      : await supabase.from('trocas_gas').insert({ ...registro, dono_id: userId })
+      : await supabase
+          .from('trocas_gas')
+          .insert({ ...registro, transacao_id: form.transacao_id, dono_id: userId })
 
     setSalvando(false)
     if (error) {
@@ -183,6 +223,33 @@ export default function GasPage() {
           </BotaoPrimario>
         }
       />
+
+      {semTroca.length > 0 && (
+        <section className="cartao mb-4 p-4">
+          <h2 className="text-base font-semibold text-texto">Lançamentos de gás sem troca</h2>
+          <p className="mb-2 text-sm text-texto-suave">
+            Compras em Moradia › Gás que ainda não estão aqui. Registre para entrarem na duração e
+            no custo.
+          </p>
+          <ul className="divide-y divide-borda">
+            {semTroca.map((l) => (
+              <li key={l.id} className="flex items-center justify-between gap-3 py-2">
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-medium text-texto">
+                    {l.descricao}
+                  </span>
+                  <span className="block text-xs text-texto-suave">
+                    {dataBR(l.data)} · {moeda(l.valor)}
+                  </span>
+                </span>
+                <BotaoSecundario onClick={() => registrarDoLancamento(l)} className="min-h-11">
+                  Registrar
+                </BotaoSecundario>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {trocas.length > 0 && (
         <>

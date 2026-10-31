@@ -85,8 +85,16 @@ export default function ContasPagarPage() {
   const [mensagem, setMensagem] = useState('')
 
   const [baixando, setBaixando] = useState<Pendencia | null>(null)
-  const [formBaixa, setFormBaixa] = useState({ data: hojeISO(), valor: '', conta_id: '' })
+  const [formBaixa, setFormBaixa] = useState({
+    data: hojeISO(),
+    valor: '',
+    conta_id: '',
+    // Valor diferente do previsto: quitar com ele, ou pagamento parcial com o resto em aberto
+    restante: 'quitar' as 'quitar' | 'parcial',
+    atualizarSerie: false,
+  })
   const [processandoBaixa, setProcessandoBaixa] = useState(false)
+  const [apagando, setApagando] = useState<Pendencia | null>(null)
 
   const carregar = useCallback(async () => {
     const [{ data: pend }, { data: cats }, { data: subs }, { data: cts }, { data: forns }] =
@@ -224,6 +232,8 @@ export default function ContasPagarPage() {
       data: hojeISO(),
       valor: String(p.valor),
       conta_id: p.conta_id ?? contas[0]?.id ?? '',
+      restante: 'quitar',
+      atualizarSerie: false,
     })
     setMensagem('')
   }
@@ -237,31 +247,32 @@ export default function ContasPagarPage() {
 
     const valorPago = parseFloat(formBaixa.valor || '0')
     const valorTotal = Number(baixando.valor)
+    // Em centavos: 605,02 digitado e 605.02 do banco precisam bater
+    const pagoCentavos = Math.round(valorPago * 100)
+    const totalCentavos = Math.round(valorTotal * 100)
 
-    if (valorPago <= 0) {
+    if (pagoCentavos <= 0) {
       setMensagem('Informe um valor maior que zero.')
       setProcessandoBaixa(false)
       return
     }
-    if (valorPago > valorTotal) {
-      setMensagem('O valor da baixa não pode ser maior que o valor em aberto.')
-      setProcessandoBaixa(false)
-      return
-    }
 
-    if (valorPago === valorTotal) {
-      // Baixa integral: a própria pendência vira um lançamento pago
+    const parcial = pagoCentavos < totalCentavos && formBaixa.restante === 'parcial'
+
+    if (!parcial) {
+      // Quitação: a própria pendência vira um lançamento pago, com o valor que de fato entrou/saiu
       const { error } = await supabase
         .from('transacoes')
         .update({
           status: 'pago',
+          valor: valorPago,
           data: formBaixa.data,
           conta_id: formBaixa.conta_id || null,
         })
         .eq('id', baixando.id)
 
-      setProcessandoBaixa(false)
       if (error) {
+        setProcessandoBaixa(false)
         setMensagem('Erro ao dar baixa: ' + error.message)
         return
       }
@@ -293,33 +304,47 @@ export default function ContasPagarPage() {
 
       const { error: erroUpdate } = await supabase
         .from('transacoes')
-        .update({ valor: valorTotal - valorPago })
+        .update({ valor: (totalCentavos - pagoCentavos) / 100 })
         .eq('id', baixando.id)
 
-      setProcessandoBaixa(false)
       if (erroUpdate) {
+        setProcessandoBaixa(false)
         setMensagem('Erro ao atualizar o saldo em aberto: ' + erroUpdate.message)
         return
       }
     }
 
+    // As próximas repetições passam a prever o valor real
+    if (formBaixa.atualizarSerie && baixando.recorrencia_id) {
+      const { error } = await supabase
+        .from('transacoes')
+        .update({ valor: valorPago })
+        .eq('recorrencia_id', baixando.recorrencia_id)
+        .eq('status', 'pendente')
+        .gt('data_vencimento', baixando.data_vencimento)
+      if (error) {
+        setProcessandoBaixa(false)
+        setMensagem('Baixa feita, mas não foi possível atualizar as próximas: ' + error.message)
+        return
+      }
+    }
+
+    setProcessandoBaixa(false)
     setBaixando(null)
     carregar()
   }
 
-  async function apagar(p: Pendencia) {
-    const temSerie = !!p.recorrencia_id
-    const mensagemConfirma = temSerie
-      ? `Apagar "${p.descricao}"?\n\nOK apaga TODA a série de repetições ainda em aberto.\nCancelar não apaga nada.`
-      : `Apagar "${p.descricao}"?\n\nEsta ação não pode ser desfeita.`
-
-    if (!window.confirm(mensagemConfirma)) return
-
+  /** "so-esta" apaga só a pendência; "proximas" também as repetições seguintes em aberto */
+  async function apagar(p: Pendencia, alcance: 'so-esta' | 'proximas') {
     const consulta = supabase.from('transacoes').delete().eq('status', 'pendente')
-    const { error } = temSerie
-      ? await consulta.eq('recorrencia_id', p.recorrencia_id)
-      : await consulta.eq('id', p.id)
+    const { error } =
+      alcance === 'proximas' && p.recorrencia_id
+        ? await consulta
+            .eq('recorrencia_id', p.recorrencia_id)
+            .gte('data_vencimento', p.data_vencimento)
+        : await consulta.eq('id', p.id)
 
+    setApagando(null)
     if (error) {
       setMensagem('Erro ao apagar: ' + error.message)
       return
@@ -457,7 +482,7 @@ export default function ContasPagarPage() {
                           Dar baixa
                         </button>
                         <button
-                          onClick={() => apagar(p)}
+                          onClick={() => setApagando(p)}
                           aria-label={`Apagar ${p.descricao}`}
                           className="rounded-lg p-2.5 text-texto-suave transition-colors hover:bg-despesa/10 hover:text-despesa"
                         >
@@ -690,11 +715,49 @@ export default function ContasPagarPage() {
             </Campo>
 
             {parseFloat(formBaixa.valor || '0') > 0 &&
-              parseFloat(formBaixa.valor) < Number(baixando.valor) && (
-                <p className="rounded-lg bg-alerta/10 px-3 py-2 text-xs text-alerta">
-                  Baixa parcial: ficará{' '}
-                  {moeda(Number(baixando.valor) - parseFloat(formBaixa.valor))} em aberto.
-                </p>
+              Math.round(parseFloat(formBaixa.valor) * 100) <
+                Math.round(Number(baixando.valor) * 100) && (
+                <fieldset className="space-y-1 rounded-lg border border-borda px-3 py-2 text-sm text-texto">
+                  <legend className="px-1 text-xs text-texto-suave">
+                    {baixando.tipo === 'receita' ? 'Recebeu' : 'Pagou'} menos que o previsto. E o
+                    restante ({moeda(Number(baixando.valor) - parseFloat(formBaixa.valor))})?
+                  </legend>
+                  <label className="flex min-h-11 items-center gap-2">
+                    <input
+                      type="radio"
+                      name="restante"
+                      checked={formBaixa.restante === 'quitar'}
+                      onChange={() => setFormBaixa({ ...formBaixa, restante: 'quitar' })}
+                      className="h-4 w-4 accent-primaria"
+                    />
+                    Quitar com este valor (não vem mais nada)
+                  </label>
+                  <label className="flex min-h-11 items-center gap-2">
+                    <input
+                      type="radio"
+                      name="restante"
+                      checked={formBaixa.restante === 'parcial'}
+                      onChange={() => setFormBaixa({ ...formBaixa, restante: 'parcial' })}
+                      className="h-4 w-4 accent-primaria"
+                    />
+                    Pagamento parcial (o restante continua em aberto)
+                  </label>
+                </fieldset>
+              )}
+
+            {baixando.recorrencia_id &&
+              parseFloat(formBaixa.valor || '0') > 0 &&
+              Math.round(parseFloat(formBaixa.valor) * 100) !==
+                Math.round(Number(baixando.valor) * 100) && (
+                <label className="flex min-h-11 items-center gap-2 text-sm text-texto">
+                  <input
+                    type="checkbox"
+                    checked={formBaixa.atualizarSerie}
+                    onChange={(e) => setFormBaixa({ ...formBaixa, atualizarSerie: e.target.checked })}
+                    className="h-4 w-4 accent-primaria"
+                  />
+                  Usar {moeda(parseFloat(formBaixa.valor))} nas próximas repetições
+                </label>
               )}
 
             <Mensagem texto={mensagem} />
@@ -708,6 +771,31 @@ export default function ContasPagarPage() {
               </BotaoPrimario>
             </div>
           </form>
+        )}
+      </Modal>
+
+      {/* ---------- Modal: apagar ---------- */}
+      <Modal aberto={!!apagando} titulo="Apagar" onFechar={() => setApagando(null)}>
+        {apagando && (
+          <div className="space-y-4">
+            <p className="text-sm text-texto">
+              Apagar &quot;{apagando.descricao}&quot; de {dataBR(apagando.data_vencimento)} (
+              {moeda(apagando.valor)})? Esta ação não pode ser desfeita.
+            </p>
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <BotaoSecundario type="button" onClick={() => setApagando(null)}>
+                Cancelar
+              </BotaoSecundario>
+              {apagando.recorrencia_id && (
+                <BotaoSecundario type="button" onClick={() => apagar(apagando, 'proximas')}>
+                  Apagar esta e as próximas da série
+                </BotaoSecundario>
+              )}
+              <BotaoPrimario type="button" onClick={() => apagar(apagando, 'so-esta')}>
+                {apagando.recorrencia_id ? 'Apagar só esta' : 'Apagar'}
+              </BotaoPrimario>
+            </div>
+          </div>
         )}
       </Modal>
     </Pagina>
