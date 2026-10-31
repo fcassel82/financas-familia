@@ -58,6 +58,8 @@ type TransacaoBanco = {
   parcelas: number | null
   situacao: string
   lancamentos: string[]
+  /** Compra da fatura aberta: o banco ainda não confirmou */
+  pendente_banco: boolean
 }
 type ContaApp = {
   id: string
@@ -140,7 +142,7 @@ export default function BancosPage() {
         supabase
           .from('transacoes_banco')
           .select(
-            'id, conta_banco_id, data, descricao, valor, tipo, pagamento_cartao, categoria_banco, parcela, parcelas, situacao, lancamentos'
+            'id, conta_banco_id, data, descricao, valor, tipo, pagamento_cartao, categoria_banco, parcela, parcelas, situacao, lancamentos, pendente_banco'
           )
           .order('id')
           .range(de, ate)
@@ -943,6 +945,11 @@ function ItemCaixa({
             {dataBR(t.data)}
             {t.parcelas && t.parcelas > 1 ? `, parcela ${t.parcela ?? '?'}/${t.parcelas}` : ''}
           </p>
+          {t.pendente_banco && (
+            <p className="mt-1 inline-block rounded-full bg-alerta/10 px-2 py-0.5 text-xs text-alerta">
+              Pendente no banco: fatura aberta, o valor ainda pode mudar
+            </p>
+          )}
         </div>
         <span
           className={`shrink-0 font-semibold whitespace-nowrap ${t.tipo === 'receita' ? 'text-receita' : 'text-despesa'}`}

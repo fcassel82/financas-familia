@@ -13,6 +13,7 @@ cole o conteúdo do arquivo e rode. Não precisa de CLI.
 | `20261026_bancos_pluggy.sql` | Notas fiscais como registro próprio (itens apontam para a nota); contas e caixa de entrada do Meu Pluggy, só para o administrador. | ✅ aplicada em 26/10/2026 |
 | `20261027_segue_mes_salario.sql` | Categorias da folha (salário, descontos, benefícios) seguem o mês do salário; o resto segue o calendário. | ✅ aplicada em 27/10/2026 |
 | `20261028_investimentos_banco.sql` | Investimentos do Meu Pluggy (saldo bruto) e a ligação com as contas de investimento do app, só para o administrador. | ✅ aplicada em 28/10/2026 |
+| `20261030_transacoes_banco_pendentes.sql` | Compras pendentes do cartão na caixa de entrada e o id da instituição para não duplicar quando o banco confirma. | ✅ aplicada em 30/10/2026 |
 
 ## Como conferir que deu certo
 

@@ -25,6 +25,8 @@ export type ContaPluggy = {
 
 export type TransacaoPluggy = {
   id: string
+  /** Id na instituição (só Open Finance): estável quando a compra passa de PENDING a POSTED */
+  providerId?: string | null
   date: string
   description: string
   descriptionRaw: string | null

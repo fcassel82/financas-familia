@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { exigirAdmin } from '@/lib/apiAdmin'
 import { tipoDaTransacao } from '@/lib/conciliacao'
+import { mesclarTransacoesBanco, type ExistenteBanco, type LinhaBanco } from '@/lib/mesclarBanco'
 import {
   dataLocal,
   idsDasConexoes,
@@ -14,6 +15,9 @@ import {
 // dias (a Pluggy atualiza uma vez por dia e o banco pode lançar com atraso)
 const DIAS_PRIMEIRA_BUSCA = 60
 const FOLGA_DIAS = 5
+// Cartão: a compra da fatura aberta só é confirmada quando a fatura fecha, com a
+// data original; a busca precisa sempre cobrir a fatura anterior inteira
+const DIAS_CARTAO = 45
 
 function diaEmBrasilia(d: Date): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(d)
@@ -99,14 +103,22 @@ export async function POST(request: NextRequest) {
     for (const conta of contasDoItem) {
       contas++
       const anterior = ultimaBusca.get(conta.id)
-      const de = anterior
-        ? diaEmBrasilia(new Date(Date.parse(anterior) - FOLGA_DIAS * 86_400_000))
-        : diaEmBrasilia(new Date(Date.now() - DIAS_PRIMEIRA_BUSCA * 86_400_000))
+      const ehCartao = conta.type === 'CREDIT'
+      const diasAtras = !anterior
+        ? DIAS_PRIMEIRA_BUSCA
+        : ehCartao
+          ? DIAS_CARTAO
+          : null
+      const de =
+        diasAtras !== null
+          ? diaEmBrasilia(new Date(Date.now() - diasAtras * 86_400_000))
+          : diaEmBrasilia(new Date(Date.parse(anterior!) - FOLGA_DIAS * 86_400_000))
       try {
         const transacoes = await listarTransacoes(conta.id, de, hoje)
-        const linhas = transacoes
-          // Compra pendente no cartão pode mudar de valor; entra quando o banco confirmar
-          .filter((t) => t.status !== 'PENDING' && Number(t.amount) !== 0)
+        const linhas: LinhaBanco[] = transacoes
+          // Na conta, pendente é agendamento que pode não acontecer; no cartão é a
+          // compra da fatura aberta, que entra marcada como "pendente no banco"
+          .filter((t) => (ehCartao || t.status !== 'PENDING') && Number(t.amount) !== 0)
           .map((t) => {
             const { tipo, pagamentoCartao } = tipoDaTransacao(
               conta.type,
@@ -126,13 +138,33 @@ export async function POST(request: NextRequest) {
               comerciante: t.merchant?.businessName || t.merchant?.name || null,
               parcela: t.creditCardMetadata?.installmentNumber ?? null,
               parcelas: t.creditCardMetadata?.totalInstallments ?? null,
+              pendente_banco: t.status === 'PENDING',
+              provider_id: t.providerId ?? null,
             }
           })
-        for (let i = 0; i < linhas.length; i += 500) {
-          // ignoreDuplicates: o que já está na caixa não volta para "revisar"
+
+        // O que já está na caixa no mesmo período: a mesma compra não entra duas vezes
+        const { data: jaNaCaixa, error: erroCaixa } = await supabase
+          .from('transacoes_banco')
+          .select('id, data, descricao, valor, tipo, situacao, pendente_banco, provider_id')
+          .eq('conta_banco_id', conta.id)
+          .gte('data', de)
+          .limit(5000)
+        if (erroCaixa) throw new Error('Não foi possível ler a caixa de entrada.')
+        const plano = mesclarTransacoesBanco(linhas, (jaNaCaixa ?? []) as ExistenteBanco[])
+
+        for (const { idAtual, mudanca } of plano.atualizar) {
+          const { error } = await supabase
+            .from('transacoes_banco')
+            .update(mudanca)
+            .eq('id', idAtual)
+          if (error) throw new Error('Não foi possível atualizar as transações.')
+        }
+        for (let i = 0; i < plano.inserir.length; i += 500) {
+          // ignoreDuplicates: proteção extra; o plano já separou o que é novo
           const { data, error } = await supabase
             .from('transacoes_banco')
-            .upsert(linhas.slice(i, i + 500), { onConflict: 'id', ignoreDuplicates: true })
+            .upsert(plano.inserir.slice(i, i + 500), { onConflict: 'id', ignoreDuplicates: true })
             .select('id')
           if (error) throw new Error('Não foi possível guardar as transações.')
           novas += data?.length ?? 0
