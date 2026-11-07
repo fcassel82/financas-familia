@@ -35,3 +35,37 @@ describe('sugerirCategoria — desodorantes e cosméticos', () => {
     })
   })
 })
+
+const PETS = { categoria: 'Pets', subcategoria: 'Ração e Petiscos' }
+const CARNES = { categoria: 'Alimentação', subcategoria: 'Carnes' }
+
+describe('sugerirCategoria — miúdos e ossos para a pet', () => {
+  it('fígado, moela, pescoço, pé de galinha e ossos e sebo vão para Pets', () => {
+    expect(sugerirCategoria('FIGADO FRANGO AGROSUL 1KG')).toEqual(PETS)
+    expect(sugerirCategoria('FIGADO RESFRIADO - PCT')).toEqual(PETS)
+    expect(sugerirCategoria('MOELA FGO CARRER RESF BDJ 750g')).toEqual(PETS)
+    expect(sugerirCategoria('PESCOCO FGO AVE SERRA RESF BDJ 700g')).toEqual(PETS)
+    expect(sugerirCategoria('PE DE GALINHA CONG KG')).toEqual(PETS)
+    expect(sugerirCategoria('OSSOS E SEBO KG')).toEqual(PETS)
+  })
+
+  it('carnes da família seguem em Carnes, mesmo com osso', () => {
+    expect(sugerirCategoria('ACEM BOV (AGULHA) C/OSSO kg')).toEqual(CARNES)
+    expect(sugerirCategoria('PALETA BOV C/OSSO kg')).toEqual(CARNES)
+    expect(sugerirCategoria('PEITO C/ OSSO RESFRIADO - PCT')).not.toEqual(PETS)
+    expect(sugerirCategoria('COXA E SOBRECOXA RESFRIADA - PCT')).toEqual(CARNES)
+  })
+
+  it('pé de moleque não é pé de galinha', () => {
+    expect(sugerirCategoria('PE DE MOLEQUE 250G')).not.toEqual(PETS)
+  })
+})
+
+describe('sugerirCategoria — higiene', () => {
+  it('sabonete líquido continua em higiene', () => {
+    expect(sugerirCategoria('SABT LIQ NEF COCO 1L')).toEqual({
+      categoria: 'Mercado',
+      subcategoria: 'Produtos de Higiene',
+    })
+  })
+})

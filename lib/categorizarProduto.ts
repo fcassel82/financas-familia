@@ -15,6 +15,14 @@ export type SugestaoCategoria = { categoria: string; subcategoria: string }
 const REGRAS: { padrao: RegExp; categoria: string; subcategoria: string }[] = [
   // Pets
   { padrao: /\b(RACAO|PEDIGREE|WHISKAS|PETISCO)\b/, categoria: 'Pets', subcategoria: 'Ração e Petiscos' },
+  // Miúdos e ossos (fígado, moela, pescoço, pé de galinha, ossos e sebo) aqui são
+  // comida da cachorra, não da família. Vem antes de Carnes, onde "FGO" pegaria
+  // "MOELA FGO". Carne "C/OSSO" (acém, paleta) não tem "SEBO" e segue em Carnes.
+  {
+    padrao: /\bF[IÍ]GADO\b|\bMOELAS?\b|\bPESCO[CÇ]O\b|\bOSSOS?\s+E\s+SEBO\b|\bP[EÉ]S?\s+(DE\s+)?(GALINHA|FGO|FRANGO)\b/,
+    categoria: 'Pets',
+    subcategoria: 'Ração e Petiscos',
+  },
 
   // Mercado — produtos de limpeza, higiene e lavanderia
   {
@@ -63,7 +71,7 @@ const REGRAS: { padrao: RegExp; categoria: string; subcategoria: string }[] = [
     subcategoria: 'Carnes',
   },
   {
-    padrao: /\b(FGO|FRANGO|COXA|PEITO\s*FGO|COXAO|PESCOCO\s*FGO|FIGADO|MOELA|ASA\s*FGO|FILE\s*(DE\s*)?PEITO)\b/,
+    padrao: /\b(FGO|FRANGO|COXA|PEITO\s*FGO|COXAO|ASA\s*FGO|FILE\s*(DE\s*)?PEITO)\b/,
     categoria: 'Alimentação',
     subcategoria: 'Carnes',
   },
