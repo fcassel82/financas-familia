@@ -29,6 +29,8 @@ export type TransacaoCalc = {
   transferencia_id: string | null
   fatura_cartao_id: string | null
   neutro: boolean
+  /** 'aporte_empresa' = aporte patronal / FGTS: mostrado à parte, fora da renda e da meta */
+  movimento_investimento?: 'rendimento' | 'aporte_empresa' | null
 }
 
 export type Resultado = {
@@ -37,10 +39,12 @@ export type Resultado = {
   rendaLiquida: number
   buckets: Record<Grupo, number>
   naoClassificado: number
+  /** Aplicado pela empresa no mês (aporte patronal, FGTS); não entra na renda nem no Futuro */
+  aporteEmpresa: number
 }
 
 export const CAMPOS_TRANSACAO_CALC =
-  'id, data, valor, tipo, escopo, dono_id, categoria_id, subcategoria_id, conta_id, transferencia_id, fatura_cartao_id, neutro'
+  'id, data, valor, tipo, escopo, dono_id, categoria_id, subcategoria_id, conta_id, transferencia_id, fatura_cartao_id, neutro, movimento_investimento'
 
 export const METAS: Record<Grupo, number> = {
   necessidade: 50,
@@ -69,10 +73,12 @@ export function calcular(
   let rendaBruta = 0
   let deducoes = 0
   let naoClassificado = 0
+  let aporteEmpresa = 0
   const buckets = { necessidade: 0, desejo: 0, investimento: 0 }
   const transferencias = new Map<string, TransacaoCalc[]>()
 
   for (const t of transacoes) {
+    if (t.movimento_investimento === 'aporte_empresa' && t.tipo === 'receita') aporteEmpresa += t.valor
     if (t.neutro || t.fatura_cartao_id) continue
 
     if (t.transferencia_id) {
@@ -108,5 +114,5 @@ export function calcular(
     }
   }
 
-  return { rendaBruta, deducoes, rendaLiquida: rendaBruta - deducoes, buckets, naoClassificado }
+  return { rendaBruta, deducoes, rendaLiquida: rendaBruta - deducoes, buckets, naoClassificado, aporteEmpresa }
 }

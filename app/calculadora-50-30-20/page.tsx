@@ -150,16 +150,21 @@ function BarraProgresso({
   valor,
   base,
   href,
+  aporteEmpresa = 0,
 }: {
   grupo: Grupo
   valor: number
   base: number
   href: string
+  /** Só no Futuro: aplicado pela empresa (patronal, FGTS). Aparece na barra, mas não conta na meta */
+  aporteEmpresa?: number
 }) {
   const meta = METAS[grupo]
   const percReal = base > 0 ? (valor / base) * 100 : 0
   const dentro = percReal <= meta + 0.5
   const larguraBarra = Math.min(100, (percReal / meta) * 100)
+  const percEmpresa = base > 0 ? (aporteEmpresa / base) * 100 : 0
+  const larguraEmpresa = Math.min(100 - larguraBarra, (percEmpresa / meta) * 100)
 
   return (
     <Link href={href} className="cartao block p-4 transition-colors hover:border-primaria/40">
@@ -174,7 +179,7 @@ function BarraProgresso({
         {CONCEITO_GRUPO[grupo]}
       </p>
       <p className="mb-2 text-2xl font-bold text-texto">{moeda(valor)}</p>
-      <div className="mb-1.5 h-2.5 w-full overflow-hidden rounded-full bg-fundo">
+      <div className="mb-1.5 flex h-2.5 w-full overflow-hidden rounded-full bg-fundo">
         <div
           className="h-full rounded-full transition-all"
           style={{
@@ -182,11 +187,24 @@ function BarraProgresso({
             backgroundColor: dentro ? COR_GRUPO[grupo] : 'var(--despesa)',
           }}
         />
+        {larguraEmpresa > 0 && (
+          <div
+            className="h-full transition-all"
+            title="Aplicado pela empresa — não conta na meta"
+            style={{ width: `${larguraEmpresa}%`, backgroundColor: COR_GRUPO[grupo], opacity: 0.35 }}
+          />
+        )}
       </div>
       <p className={`mb-2 text-xs font-medium ${dentro ? 'text-texto-suave' : 'text-despesa'}`}>
         {percReal.toFixed(1)}% da renda líquida
         {!dentro && ` — ${(percReal - meta).toFixed(1)} pontos acima da meta`}
       </p>
+      {aporteEmpresa > 0 && (
+        <p className="mb-2 text-[11px] text-texto-suave">
+          Você: {moeda(valor)} · Empresa: {moeda(aporteEmpresa)}
+          <span className="block">Aplicado pela empresa (patronal, FGTS) — não conta na meta</span>
+        </p>
+      )}
       <p className="border-t border-borda pt-2 text-[11px] italic text-texto-suave">
         {PERGUNTA_GRUPO[grupo]}
       </p>
@@ -653,6 +671,7 @@ export default function Calculadora503020Page() {
             valor={resultado.buckets[grupo]}
             base={resultado.rendaLiquida}
             href={linkResumo({ ...filtroDoMes, grupo, titulo: ROTULO_GRUPO[grupo] })}
+            aporteEmpresa={grupo === 'investimento' ? resultado.aporteEmpresa : 0}
           />
         ))}
       </div>
