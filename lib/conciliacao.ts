@@ -251,6 +251,30 @@ export function sugerirAcao(item: ItemBanco, ctx: ContextoConciliacao): Sugestao
     return { acao: 'lancar', motivo: 'Rendimento da conta', detalharNota: false }
   }
 
+  // 2b. Ponta de transferência já lançada no app (à mão ou por outra conta): liga a ela.
+  // Sem isto, confirmar como transferência cria uma segunda (resgate de 4.000 em dobro)
+  if (item.contaBanco.tipo !== 'CREDIT' && item.contaBanco.conta_id) {
+    const ponta = ctx.lancamentos
+      .filter(
+        (l) =>
+          l.transferencia_id &&
+          l.status === 'pago' &&
+          l.conta_id === item.contaBanco.conta_id &&
+          l.tipo === item.tipo &&
+          centavos(l.valor) === centavos(item.valor) &&
+          diasEntre(l.data, item.data) <= 3 &&
+          !ctx.jaLigados.has(l.id)
+      )
+      .sort((a, b) => diasEntre(a.data, item.data) - diasEntre(b.data, item.data))[0]
+    if (ponta) {
+      return {
+        acao: 'ligar',
+        motivo: `Transferência já no app: ${ponta.descricao}`,
+        lancamentos: [ponta.id],
+      }
+    }
+  }
+
   // 3. Transferência entre contas próprias (aplicação e resgate)
   const categoria = (item.categoria_banco ?? '').toLowerCase()
   // "aplic" sozinho ou aplicação, mas não "aplicativo"
@@ -289,13 +313,19 @@ export function sugerirAcao(item: ItemBanco, ctx: ContextoConciliacao): Sugestao
 
   // 4a. Parcela do cartão: o app guarda a compra parcelada com parcela_total
   if (item.parcelas && item.parcelas > 1 && item.contaBanco.cartao_id) {
-    const parcela = livres.find(
+    // Mesmo número de parcela: a 4/5 do banco não pode ligar à 3/5 do app.
+    // Parcela sem número no app só serve se não houver uma com o número certo
+    const candidatas = livres.filter(
       (l) =>
         l.cartao_id === item.contaBanco.cartao_id &&
         l.parcela_total === item.parcelas &&
         centavos(l.valor) === alvo &&
-        diasEntre(l.data, item.data) <= 40
+        diasEntre(l.data, item.data) <= 40 &&
+        (l.parcela_numero == null || item.parcela == null || l.parcela_numero === item.parcela)
     )
+    const parcela =
+      candidatas.find((l) => l.parcela_numero != null && l.parcela_numero === item.parcela) ??
+      candidatas[0]
     if (parcela)
       return { acao: 'ligar', motivo: 'Parcela já lançada no app', lancamentos: [parcela.id] }
   }
@@ -425,7 +455,11 @@ export function sugerirAcao(item: ItemBanco, ctx: ContextoConciliacao): Sugestao
     }
     // Adiantamento: par neutro, com a categoria do último adiantamento recebido
     const ultimo = ctx.lancamentos
-      .filter((l) => l.tipo === 'receita' && l.neutro && ehFolha(l))
+      // Da mesma conta: o FGTS (também receita neutra de folha) cai em outra conta
+      .filter(
+        (l) =>
+          l.tipo === 'receita' && l.neutro && ehFolha(l) && l.conta_id === item.contaBanco.conta_id
+      )
       .sort((a, b) => b.data.localeCompare(a.data))[0]
     if (ultimo) {
       return {

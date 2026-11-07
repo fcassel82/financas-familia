@@ -216,10 +216,44 @@ describe('sugerirAcao: regras por ordem', () => {
   it('parcela k de uma nota detalhada liga às parcelas k dos itens', () => {
     const cartao = { tipo: 'CREDIT', conta_id: null, cartao_id: 'nu' }
     const parcelasDaNota = [
-      lanc({ id: 'a1', valor: 28.9, parcela_numero: 1, parcela_total: 2, nota_fiscal_id: 'n1', cartao_id: 'nu', conta_id: null }),
-      lanc({ id: 'a2', valor: 28.9, parcela_numero: 2, parcela_total: 2, nota_fiscal_id: 'n1', cartao_id: 'nu', conta_id: null, data: '2026-11-16' }),
-      lanc({ id: 'b1', valor: 77.99, parcela_numero: 1, parcela_total: 2, nota_fiscal_id: 'n1', cartao_id: 'nu', conta_id: null }),
-      lanc({ id: 'b2', valor: 77.99, parcela_numero: 2, parcela_total: 2, nota_fiscal_id: 'n1', cartao_id: 'nu', conta_id: null, data: '2026-11-16' }),
+      lanc({
+        id: 'a1',
+        valor: 28.9,
+        parcela_numero: 1,
+        parcela_total: 2,
+        nota_fiscal_id: 'n1',
+        cartao_id: 'nu',
+        conta_id: null,
+      }),
+      lanc({
+        id: 'a2',
+        valor: 28.9,
+        parcela_numero: 2,
+        parcela_total: 2,
+        nota_fiscal_id: 'n1',
+        cartao_id: 'nu',
+        conta_id: null,
+        data: '2026-11-16',
+      }),
+      lanc({
+        id: 'b1',
+        valor: 77.99,
+        parcela_numero: 1,
+        parcela_total: 2,
+        nota_fiscal_id: 'n1',
+        cartao_id: 'nu',
+        conta_id: null,
+      }),
+      lanc({
+        id: 'b2',
+        valor: 77.99,
+        parcela_numero: 2,
+        parcela_total: 2,
+        nota_fiscal_id: 'n1',
+        cartao_id: 'nu',
+        conta_id: null,
+        data: '2026-11-16',
+      }),
     ]
     const s = sugerirAcao(
       item({ valor: 106.89, parcela: 2, parcelas: 2, data: '2026-11-12', contaBanco: cartao }),
@@ -239,7 +273,15 @@ describe('sugerirAcao: regras por ordem', () => {
       }),
       ctx({
         lancamentos: [
-          lanc({ id: 'x1', valor: 33.33, parcela_numero: 1, parcela_total: 3, nota_fiscal_id: 'n2', cartao_id: null, conta_id: null }),
+          lanc({
+            id: 'x1',
+            valor: 33.33,
+            parcela_numero: 1,
+            parcela_total: 3,
+            nota_fiscal_id: 'n2',
+            cartao_id: null,
+            conta_id: null,
+          }),
         ],
       })
     )
@@ -256,7 +298,15 @@ describe('sugerirAcao: regras por ordem', () => {
       }),
       ctx({
         lancamentos: [
-          lanc({ id: 'y2', valor: 50, parcela_numero: 2, parcela_total: 2, nota_fiscal_id: 'n3', cartao_id: 'c6', conta_id: null }),
+          lanc({
+            id: 'y2',
+            valor: 50,
+            parcela_numero: 2,
+            parcela_total: 2,
+            nota_fiscal_id: 'n3',
+            cartao_id: 'c6',
+            conta_id: null,
+          }),
         ],
       })
     )
@@ -579,5 +629,130 @@ describe('sugerirAcao: pagamento de fatura', () => {
       ctx({ lancamentos: [fatura({ id: 'f', valor: 124.68 })], cartoes })
     )
     expect(s.acao).toBe('lancar')
+  })
+})
+
+describe('sugerirAcao: correções da auditoria de 31/10', () => {
+  it('resgate que já está no app como transferência liga a ela, sem criar outra', () => {
+    const perna = lanc({
+      id: 'res',
+      data: '2026-09-10',
+      tipo: 'receita',
+      valor: 4000,
+      transferencia_id: 'tr',
+    })
+    const s = sugerirAcao(
+      item({
+        data: '2026-09-11',
+        descricao: 'Entrada RESGATE COFRINHOS',
+        valor: 4000,
+        tipo: 'receita',
+      }),
+      ctx({ lancamentos: [perna] })
+    )
+    expect(s).toMatchObject({ acao: 'ligar', lancamentos: ['res'] })
+  })
+
+  it('Pix para conta própria já lançado como transferência liga à ponta desta conta', () => {
+    const saida = lanc({ id: 'sai', data: '2026-09-08', valor: 100, transferencia_id: 'tp' })
+    const entrada = lanc({
+      id: 'ent',
+      data: '2026-09-08',
+      tipo: 'receita',
+      valor: 100,
+      transferencia_id: 'tp',
+      conta_id: 'nufred',
+    })
+    const s = sugerirAcao(
+      item({
+        data: '2026-09-09',
+        descricao: 'Pix enviado Frederico José da Luz Cassel',
+        valor: 100,
+      }),
+      ctx({ lancamentos: [saida, entrada] })
+    )
+    expect(s).toMatchObject({ acao: 'ligar', lancamentos: ['sai'] })
+  })
+
+  it('transferência já ligada a outra transação do banco não é reaproveitada', () => {
+    const perna = lanc({
+      id: 'res',
+      data: '2026-09-10',
+      tipo: 'receita',
+      valor: 4000,
+      transferencia_id: 'tr',
+    })
+    const s = sugerirAcao(
+      item({
+        data: '2026-09-11',
+        descricao: 'Entrada RESGATE COFRINHOS',
+        valor: 4000,
+        tipo: 'receita',
+      }),
+      ctx({ lancamentos: [perna], jaLigados: new Set(['res']) })
+    )
+    expect(s.acao).toBe('transferencia')
+  })
+
+  it('parcela 4/5 do banco não liga à 3/5 do app', () => {
+    const cartao = { tipo: 'CREDIT', conta_id: null, cartao_id: 'c6card' }
+    const p3 = lanc({
+      id: 'p3',
+      data: '2026-08-24',
+      valor: 107.62,
+      conta_id: null,
+      cartao_id: 'c6card',
+      parcela_total: 5,
+      parcela_numero: 3,
+    })
+    const p4 = lanc({
+      id: 'p4',
+      data: '2026-09-24',
+      valor: 107.62,
+      conta_id: null,
+      cartao_id: 'c6card',
+      parcela_total: 5,
+      parcela_numero: 4,
+    })
+    const banco = item({
+      data: '2026-09-10',
+      descricao: 'MERCADOLIVRE',
+      valor: 107.62,
+      parcela: 4,
+      parcelas: 5,
+      contaBanco: cartao,
+    })
+    expect(sugerirAcao(banco, ctx({ lancamentos: [p3] })).acao).toBe('lancar')
+    expect(sugerirAcao(banco, ctx({ lancamentos: [p3, p4] }))).toMatchObject({
+      acao: 'ligar',
+      lancamentos: ['p4'],
+    })
+  })
+
+  it('adiantamento usa a categoria do último adiantamento da mesma conta, não o FGTS de outra', () => {
+    const adiant = lanc({
+      id: 'ad',
+      data: '2026-08-14',
+      tipo: 'receita',
+      valor: 2536.21,
+      categoria_id: 'desc',
+      subcategoria_id: 'adiantamento',
+      neutro: true,
+    })
+    const fgts = lanc({
+      id: 'fg',
+      data: '2026-09-18',
+      tipo: 'receita',
+      valor: 996.42,
+      categoria_id: 'ben',
+      subcategoria_id: 'fgts',
+      neutro: true,
+      conta_id: 'fgtsconta',
+    })
+    const s = sugerirAcao(
+      item({ data: '2026-10-15', descricao: SALARIO, valor: 2536.21, tipo: 'receita' }),
+      ctx({ lancamentos: [adiant, fgts], categoriasFolha: new Set(['sal', 'desc', 'ben']) })
+    )
+    expect(s).toMatchObject({ neutro: true, categoria: 'desc|adiantamento' })
   })
 })
