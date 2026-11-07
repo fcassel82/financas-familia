@@ -344,6 +344,25 @@ describe('sugerirAcao: regras por ordem', () => {
     expect(s.diferenca).toBeCloseTo(-0.3)
   })
 
+  it('itens antigos do mesmo minuto não ligam a parcela errada', () => {
+    // O banco mostra as duas parcelas com a data da compra; a 2/2 não pode pegar os itens 1/2
+    const cartao = { tipo: 'CREDIT', conta_id: null, cartao_id: 'nu' }
+    const itens = [
+      lanc({ id: 'b1', valor: 142.5, parcela_numero: 1, parcela_total: 2, data: '2026-08-28', cartao_id: 'nu', conta_id: null }),
+      lanc({ id: 'c1', valor: 28, parcela_numero: 1, parcela_total: 2, data: '2026-08-28', cartao_id: 'nu', conta_id: null }),
+    ]
+    const s = sugerirAcao(
+      item({ valor: 170.5, parcela: 2, parcelas: 2, data: '2026-08-28', contaBanco: cartao }),
+      ctx({ lancamentos: itens })
+    )
+    expect(s.acao).not.toBe('ligar')
+    const s1 = sugerirAcao(
+      item({ valor: 170.5, parcela: 1, parcelas: 2, data: '2026-08-28', contaBanco: cartao }),
+      ctx({ lancamentos: itens })
+    )
+    expect(s1).toMatchObject({ acao: 'ligar', lancamentos: ['b1', 'c1'] })
+  })
+
   it('o resto é lançar, com opção de detalhar por nota na despesa', () => {
     expect(
       sugerirAcao(item({ descricao: 'Pagamento de Pix QR Code TIM S A' }), ctx())

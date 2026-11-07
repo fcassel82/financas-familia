@@ -391,6 +391,8 @@ export function sugerirAcao(item: ItemBanco, ctx: ContextoConciliacao): Sugestao
     const grupos = new Map<string, LancamentoApp[]>()
     for (const l of livres) {
       if (l.nota_fiscal_id || l.data !== item.data || !mesmaOrigem(l, item)) continue
+      // O banco dá a data da compra a todas as parcelas: só a de mesmo número serve
+      if (l.parcela_numero != null && l.parcela_numero !== item.parcela) continue
       const minuto = l.criado_em.slice(0, 16)
       grupos.set(minuto, [...(grupos.get(minuto) ?? []), l])
     }
