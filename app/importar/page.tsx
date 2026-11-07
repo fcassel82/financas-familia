@@ -12,6 +12,7 @@ import { sugerirCategoria } from '@/lib/categorizarProduto'
 import type { NotaFiscal } from '@/lib/parseNfce'
 import { verificarDuplicatasEmLote, type Duplicata } from '@/lib/verificarDuplicata'
 import { dividirEmParcelas } from '@/lib/parcelas'
+import { ratearDesconto } from '@/lib/notaFiscal'
 import { linhaDeSaldoAnterior } from '@/lib/conciliacao'
 import { IconeImportar } from '@/components/Icones'
 import {
@@ -342,7 +343,12 @@ export default function ImportarPage() {
     if (formato === 'nfce') {
       // Nota fiscal só tem despesa; a categoria é um chute pelo nome do
       // produto, sempre revisável na tela seguinte antes de salvar
-      processadas = (notaFiscal?.itens ?? []).map((item) => {
+      // Desconto rateado nos itens: a soma fecha com o valor pago, que é o que o banco mostra
+      const liquidos = ratearDesconto(
+        (notaFiscal?.itens ?? []).map((i) => i.valorTotal),
+        notaFiscal?.valorPago ?? null
+      )
+      processadas = (notaFiscal?.itens ?? []).map((item, indice) => {
         const sugestao = sugerirCategoria(item.descricao)
         const categoriaSugerida = sugestao
           ? categorias.find(
@@ -360,7 +366,7 @@ export default function ImportarPage() {
         return {
           data: notaFiscal?.dataEmissao || hojeISO(),
           descricao: item.descricao,
-          valor: item.valorTotal,
+          valor: liquidos[indice],
           tipo: 'despesa',
           categoriaId: categoriaSugerida?.id ?? '',
           subcategoriaId: subcategoriaSugerida?.id ?? '',
@@ -467,6 +473,20 @@ export default function ImportarPage() {
     }
 
     setSalvando(true)
+    if (formato === 'nfce' && notaFiscal?.chaveAcesso) {
+      const { data: jaImportada } = await supabase
+        .from('notas_fiscais')
+        .select('loja, data, valor_pago')
+        .eq('chave_acesso', notaFiscal.chaveAcesso)
+        .maybeSingle()
+      if (jaImportada) {
+        setSalvando(false)
+        setMensagem(
+          `Esta nota fiscal já foi importada: ${jaImportada.loja ?? 'loja'}, ${dataBR(jaImportada.data)}, ${moeda(jaImportada.valor_pago)}. Nada foi salvo.`
+        )
+        return
+      }
+    }
     const mapaDuplicatas = await verificarDuplicatasEmLote(linhasIncluidas)
     setSalvando(false)
 
@@ -545,12 +565,17 @@ export default function ImportarPage() {
           cartao_id: cartaoParaSalvar,
           escopo: linhasParaSalvar[0].escopo,
           dono_id: userId,
+          chave_acesso: notaFiscal.chaveAcesso ?? null,
         })
         .select('id')
         .single()
       if (erroNota || !nota) {
         setSalvando(false)
-        setMensagem('Erro ao salvar a nota fiscal: ' + (erroNota?.message ?? 'tente novamente.'))
+        setMensagem(
+          erroNota?.code === '23505'
+            ? 'Esta nota fiscal já foi importada. Nada foi salvo.'
+            : 'Erro ao salvar a nota fiscal: ' + (erroNota?.message ?? 'tente novamente.')
+        )
         return
       }
       notaFiscalId = nota.id
@@ -717,8 +742,8 @@ export default function ImportarPage() {
                   <>
                     {' '}
                     · Desconto de {moeda(notaFiscal.desconto)} (valor pago:{' '}
-                    {moeda(notaFiscal.valorPago ?? 0)}) — os itens abaixo mantêm o valor de tabela
-                    impresso na nota, sem desconto aplicado.
+                    {moeda(notaFiscal.valorPago ?? 0)}) — já distribuído nos itens abaixo, para a soma
+                    bater com o valor pago.
                   </>
                 ) : null}
               </p>

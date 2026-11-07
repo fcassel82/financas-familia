@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { decodificarQrDeImagem, parsearPaginaNfce, validarUrlNfce } from '@/lib/parseNfce'
+import { chaveDaUrlNfce } from '@/lib/notaFiscal'
 
 /**
  * Teto de tamanho do arquivo. Serve para dar uma mensagem clara em vez de o
@@ -107,5 +108,5 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  return NextResponse.json({ nota })
+  return NextResponse.json({ nota: { ...nota, chaveAcesso: chaveDaUrlNfce(urlQr) } })
 }

@@ -213,6 +213,56 @@ describe('sugerirAcao: regras por ordem', () => {
     expect(s).toMatchObject({ acao: 'ligar', lancamentos: ['p3'] })
   })
 
+  it('parcela k de uma nota detalhada liga às parcelas k dos itens', () => {
+    const cartao = { tipo: 'CREDIT', conta_id: null, cartao_id: 'nu' }
+    const parcelasDaNota = [
+      lanc({ id: 'a1', valor: 28.9, parcela_numero: 1, parcela_total: 2, nota_fiscal_id: 'n1', cartao_id: 'nu', conta_id: null }),
+      lanc({ id: 'a2', valor: 28.9, parcela_numero: 2, parcela_total: 2, nota_fiscal_id: 'n1', cartao_id: 'nu', conta_id: null, data: '2026-11-16' }),
+      lanc({ id: 'b1', valor: 77.99, parcela_numero: 1, parcela_total: 2, nota_fiscal_id: 'n1', cartao_id: 'nu', conta_id: null }),
+      lanc({ id: 'b2', valor: 77.99, parcela_numero: 2, parcela_total: 2, nota_fiscal_id: 'n1', cartao_id: 'nu', conta_id: null, data: '2026-11-16' }),
+    ]
+    const s = sugerirAcao(
+      item({ valor: 106.89, parcela: 2, parcelas: 2, data: '2026-11-12', contaBanco: cartao }),
+      ctx({ lancamentos: parcelasDaNota, jaLigados: new Set(['a1', 'b1']) })
+    )
+    expect(s).toMatchObject({ acao: 'ligar', lancamentos: ['a2', 'b2'] })
+    expect(s.motivo).toContain('Parcela 2/2 da nota fiscal')
+  })
+
+  it('parcela de nota aceita a sobra de centavos que o banco põe na 1ª parcela', () => {
+    const s = sugerirAcao(
+      item({
+        valor: 33.34,
+        parcela: 1,
+        parcelas: 3,
+        contaBanco: { tipo: 'CREDIT', conta_id: null, cartao_id: 'nu' },
+      }),
+      ctx({
+        lancamentos: [
+          lanc({ id: 'x1', valor: 33.33, parcela_numero: 1, parcela_total: 3, nota_fiscal_id: 'n2', cartao_id: null, conta_id: null }),
+        ],
+      })
+    )
+    expect(s).toMatchObject({ acao: 'ligar', lancamentos: ['x1'] })
+  })
+
+  it('parcela de nota em outro cartão não liga', () => {
+    const s = sugerirAcao(
+      item({
+        valor: 50,
+        parcela: 2,
+        parcelas: 2,
+        contaBanco: { tipo: 'CREDIT', conta_id: null, cartao_id: 'nu' },
+      }),
+      ctx({
+        lancamentos: [
+          lanc({ id: 'y2', valor: 50, parcela_numero: 2, parcela_total: 2, nota_fiscal_id: 'n3', cartao_id: 'c6', conta_id: null }),
+        ],
+      })
+    )
+    expect(s.acao).not.toBe('ligar')
+  })
+
   it('liga à nota fiscal registrada pelo valor pago', () => {
     const s = sugerirAcao(
       item({ valor: 287.43 }),

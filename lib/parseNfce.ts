@@ -108,6 +108,8 @@ export type NotaFiscal = {
   valorPago: number | null
   formaPagamento: string | null
   itens: ItemNfce[]
+  /** Chave de acesso (44 dígitos), lida da URL do QR Code; null se não veio */
+  chaveAcesso?: string | null
 }
 
 function paraNumero(texto: string): number {

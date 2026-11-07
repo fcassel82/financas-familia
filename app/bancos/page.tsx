@@ -95,7 +95,7 @@ const ROTULO_ACAO: Record<Acao, string> = {
 }
 
 const CAMPOS_LANCAMENTO =
-  'id, data, descricao, valor, tipo, status, escopo, dono_id, conta_id, cartao_id, categoria_id, subcategoria_id, parcela_total, nota_fiscal_id, transferencia_id, fatura_cartao_id, criado_em, neutro, fatura_competencia, data_vencimento'
+  'id, data, descricao, valor, tipo, status, escopo, dono_id, conta_id, cartao_id, categoria_id, subcategoria_id, parcela_total, parcela_numero, nota_fiscal_id, transferencia_id, fatura_cartao_id, criado_em, neutro, fatura_competencia, data_vencimento'
 
 export default function BancosPage() {
   const [carregando, setCarregando] = useState(true)

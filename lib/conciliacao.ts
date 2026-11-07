@@ -33,6 +33,7 @@ export type LancamentoApp = {
   conta_id: string | null
   cartao_id: string | null
   parcela_total: number | null
+  parcela_numero?: number | null
   nota_fiscal_id: string | null
   transferencia_id: string | null
   fatura_cartao_id: string | null
@@ -297,6 +298,35 @@ export function sugerirAcao(item: ItemBanco, ctx: ContextoConciliacao): Sugestao
     )
     if (parcela)
       return { acao: 'ligar', motivo: 'Parcela já lançada no app', lancamentos: [parcela.id] }
+  }
+
+  // 4c. Parcela de nota detalhada: o banco mostra a parcela k da compra inteira e
+  // o app tem a parcela k de cada item. A sobra de centavos pode cair em parcelas
+  // diferentes (o banco põe na 1ª, o app na última), daí a tolerância por item.
+  if (item.tipo === 'despesa' && item.parcela && item.parcelas && item.parcelas > 1) {
+    const porNota = new Map<string, LancamentoApp[]>()
+    for (const l of livres) {
+      if (
+        !l.nota_fiscal_id ||
+        l.parcela_total !== item.parcelas ||
+        l.parcela_numero !== item.parcela ||
+        (l.cartao_id && l.cartao_id !== item.contaBanco.cartao_id) ||
+        l.conta_id
+      )
+        continue
+      porNota.set(l.nota_fiscal_id, [...(porNota.get(l.nota_fiscal_id) ?? []), l])
+    }
+    for (const itens of porNota.values()) {
+      const soma = itens.reduce((s, l) => s + centavos(l.valor), 0)
+      if (Math.abs(soma - alvo) <= itens.length * (item.parcelas - 1)) {
+        return {
+          acao: 'ligar',
+          motivo: `Parcela ${item.parcela}/${item.parcelas} da nota fiscal (${itens.length} itens)`,
+          lancamentos: itens.map((l) => l.id),
+          diferenca: (alvo - soma) / 100,
+        }
+      }
+    }
   }
 
   // 4b. Lançamento igual: mesmo valor, até 2 dias, de preferência na mesma conta
