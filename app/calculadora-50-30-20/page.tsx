@@ -145,6 +145,8 @@ function calcularAportes(transacoes: TransacaoCalc[], contaTipoMap: Map<string, 
   return total
 }
 
+const ROTULO_FUTURO_EMPRESA = 'Futuro (empresa)'
+
 function BarraProgresso({
   grupo,
   valor,
@@ -475,6 +477,7 @@ export default function Calculadora503020Page() {
         [ROTULO_GRUPO.necessidade]: base > 0 ? Number(((r.buckets.necessidade / base) * 100).toFixed(1)) : 0,
         [ROTULO_GRUPO.desejo]: base > 0 ? Number(((r.buckets.desejo / base) * 100).toFixed(1)) : 0,
         [ROTULO_GRUPO.investimento]: base > 0 ? Number(((r.buckets.investimento / base) * 100).toFixed(1)) : 0,
+        [ROTULO_FUTURO_EMPRESA]: base > 0 ? Number(((r.aporteEmpresa / base) * 100).toFixed(1)) : 0,
       }
     })
   }, [chavesCurto, porCompetencia, subcategoriaMap, contaTipoMap])
@@ -760,10 +763,18 @@ export default function Calculadora503020Page() {
               />
               <Bar
                 dataKey={ROTULO_GRUPO.investimento}
+                stackId="futuro"
                 fill={COR_GRUPO.investimento}
-                radius={[4, 4, 0, 0]}
                 cursor="pointer"
                 onClick={(_, i) => abrirMesDoGrafico(tendencia[i].chave, 'investimento')}
+              />
+              {/* Aporte patronal e FGTS: em cima do Futuro, mais claro; não conta na meta */}
+              <Bar
+                dataKey={ROTULO_FUTURO_EMPRESA}
+                stackId="futuro"
+                fill={COR_GRUPO.investimento}
+                fillOpacity={0.35}
+                radius={[4, 4, 0, 0]}
               />
             </BarChart>
           </ResponsiveContainer>
