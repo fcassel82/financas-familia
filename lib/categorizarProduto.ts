@@ -33,17 +33,25 @@ const REGRAS: { padrao: RegExp; categoria: string; subcategoria: string }[] = [
     categoria: 'Mercado',
     subcategoria: 'Produtos de limpeza',
   },
+  // Desodorante é cuidado pessoal, não higiene da casa. Vem antes da regra de
+  // higiene; "DES " exige espaço depois, para DESINFETANTE não cair aqui.
   {
     padrao:
-      /\bSAB[TO]NETE\b|\bSABT\b|\bGEL\s*DENT\b|\bCREME\s*DENTAL\b|\bSHAMPOO\b|\bXAMPU\b|\bCONDICIONADOR\b|\bPAPEL\s*HIG|\bPAP\s*HIG\b|\bABSORVENTE\b|\bFRALDA\b|\bDESODORANTE\b|\bESCOVA\s*DENTAL\b|\bGUARDANAPO\b|\bGUARD\b|\bHASTE\s*FLEX/,
+      /\bDESODORANTE\b|\bDESOD\b|\bDES\s+(AER|AEROSOL|ROLL|ROL|CREM|STICK|REXONA|NIVEA|DOVE|ABOVE|AXE|MONANGE|BOZZANO|GILLETTE|MONTANA|OLD\s*SPICE)\b/,
+    categoria: 'Cuidados Pessoais',
+    subcategoria: 'Cosméticos, Perfumaria e Maquiagem',
+  },
+  {
+    padrao:
+      /\bSAB[TO]NETE\b|\bSABT\b|\bGEL\s*DENT\b|\bCREME\s*DENTAL\b|\bSHAMPOO\b|\bXAMPU\b|\bCONDICIONADOR\b|\bPAPEL\s*HIG|\bPAP\s*HIG\b|\bABSORVENTE\b|\bFRALDA\b|\bESCOVA\s*DENTAL\b|\bGUARDANAPO\b|\bGUARD\b|\bHASTE\s*FLEX/,
     categoria: 'Mercado',
     subcategoria: 'Produtos de Higiene',
   },
 
-  // Compras/Cuidados
+  // Cuidados Pessoais (nome igual ao da tabela categorias, senão a sugestão não acha)
   {
     padrao: /\bTINT(URA)?\s*CR\b|\bESMALTE\b|\bMAQUIAGEM\b|\bPERFUME\b|\bCOLONIA\b|\bPROTETOR\s*SOLAR\b/,
-    categoria: 'Compras/Cuidados',
+    categoria: 'Cuidados Pessoais',
     subcategoria: 'Cosméticos, Perfumaria e Maquiagem',
   },
 
