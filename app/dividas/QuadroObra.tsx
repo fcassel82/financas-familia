@@ -19,10 +19,10 @@ type Movimento = {
 }
 
 /**
- * Para onde foi o dinheiro do empréstimo: saldo que sobra na conta da obra e
- * as compras na subcategoria da obra, separadas entre as que saíram da conta
- * da obra (material, pela escola) e as que saíram das contas da família
- * (mão de obra).
+ * Para onde foi o dinheiro do empréstimo: o que sobra na conta da obra, o
+ * total das compras na subcategoria da obra (venham de qualquer conta) e
+ * quanto disso saiu do bolso da família — o que a conta da obra não cobriu,
+ * nem diretamente nem por reembolso.
  */
 export function QuadroObra({ divida }: { divida: Divida }) {
   const [movimentos, setMovimentos] = useState<Movimento[] | null>(null)
@@ -50,8 +50,20 @@ export function QuadroObra({ divida }: { divida: Divida }) {
     .reduce((s, m) => s + sinal(m), 0)
   const compras = movimentos.filter((m) => m.subcategoria_id === divida.subcategoria_obra_id)
   const gasto = (lista: Movimento[]) => lista.reduce((s, m) => s - sinal(m), 0)
-  const pelaObra = gasto(compras.filter((m) => m.conta_id === divida.conta_id))
-  const pelaFamilia = gasto(compras.filter((m) => m.conta_id !== divida.conta_id))
+  const totalGasto = gasto(compras)
+  // Tudo o que saiu da conta da obra foi para a obra: compra direta ou
+  // reembolso (transferência) de compra paga antes por uma conta da família.
+  // O IOF fica de fora (está na subcategoria da parcela).
+  const saiuDoEmprestimo = movimentos
+    .filter(
+      (m) =>
+        m.conta_id === divida.conta_id &&
+        m.status === 'pago' &&
+        m.tipo === 'despesa' &&
+        m.subcategoria_id !== divida.subcategoria_parcela_id
+    )
+    .reduce((s, m) => s + Number(m.valor), 0)
+  const doSeuBolso = Math.max(0, totalGasto - saiuDoEmprestimo)
   const listadas = verTodas ? compras : compras.slice(0, 5)
 
   return (
@@ -65,12 +77,12 @@ export function QuadroObra({ divida }: { divida: Divida }) {
           </div>
         )}
         <div>
-          <p className="text-xs text-texto-suave">Material (escola)</p>
-          <p className="whitespace-nowrap font-semibold text-texto">{moeda(pelaObra)}</p>
+          <p className="text-xs text-texto-suave">Gasto na obra</p>
+          <p className="whitespace-nowrap font-semibold text-texto">{moeda(totalGasto)}</p>
         </div>
         <div>
-          <p className="text-xs text-texto-suave">Suas contas</p>
-          <p className="whitespace-nowrap font-semibold text-texto">{moeda(pelaFamilia)}</p>
+          <p className="text-xs text-texto-suave">Do seu bolso</p>
+          <p className="whitespace-nowrap font-semibold text-texto">{moeda(doSeuBolso)}</p>
         </div>
       </div>
 
