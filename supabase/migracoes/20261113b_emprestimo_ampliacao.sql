@@ -40,7 +40,7 @@ begin
     sistema, data_primeira_parcela, conta_id, subcategoria_obra_id, subcategoria_parcela_id
   ) values (
     'Ampliação da casa', 'emprestimo', 'Sicredi', 70325, 70325, 2529.33, 48, 0,
-    1.5133, '2026-11-13', '2030-11-10', false, 'familiar', fred,
+    1.5133, '2026-11-11', '2030-11-10', false, 'familiar', fred,
     'Selic + 6% a.a., 48x SAC, sem seguro. IOF R$ 2.128,55 (adicional 0,38% R$ 267,24 + diário R$ 1.861,31). '
       || 'A escola paga a amortização (~R$ 1.465,10) e o Fred paga os juros, transferindo para a Sicredi da escola.',
     'sac', '2026-12-10', conta, sub_obra, sub_parcela
@@ -50,8 +50,8 @@ begin
   -- IOF foi pago com o próprio empréstimo e volta nas parcelas)
   insert into public.transacoes (data, descricao, valor, tipo, status, neutro, escopo, conta_id, categoria_id, subcategoria_id, dono_id, lancado_por)
   values
-    ('2026-11-13', 'Liberação do empréstimo da ampliação (bruto)', 70325, 'receita', 'pago', true, 'familiar', conta, null, null, fred, fred),
-    ('2026-11-13', 'IOF do empréstimo da ampliação', 2128.55, 'despesa', 'pago', true, 'familiar', conta, moradia, sub_parcela, fred, fred);
+    ('2026-11-11', 'Liberação do empréstimo da ampliação (bruto)', 70325, 'receita', 'pago', true, 'familiar', conta, null, null, fred, fred),
+    ('2026-11-11', 'IOF do empréstimo da ampliação', 2128.55, 'despesa', 'pago', true, 'familiar', conta, moradia, sub_parcela, fred, fred);
 end $$;
 
 -- Conferir: deve mostrar a Conta da obra com R$ 68.196,45
