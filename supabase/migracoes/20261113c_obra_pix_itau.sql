@@ -1,4 +1,4 @@
--- Dois Pix do Itaú de 13/11/2026 eram da obra: passam para a subcategoria da
+-- Dois Pix do Itaú (novembro/2026) eram da obra: passam para a subcategoria da
 -- obra (o gatilho marca neutro). Fossa + filtro + cisterna (Plastifibra) serão
 -- reembolsados pela Sicredi da escola; Jairo é mão de obra.
 do $$
