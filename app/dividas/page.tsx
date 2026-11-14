@@ -4,6 +4,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import { dataBR, hojeISO, moeda, normalizar } from '@/lib/formato'
 import { IconeDivida, IconeLixeira, IconeMais } from '@/components/Icones'
+import { CartaoSAC } from './CartaoSAC'
+import { PagarParcela } from './PagarParcela'
+import { TabelaParcelas } from './TabelaParcelas'
+import { dadosSAC, sincronizarDivida, type Divida, type ParcelaRegistrada } from './tipos'
 import {
   BotaoPrimario,
   BotaoSecundario,
@@ -17,27 +21,8 @@ import {
   classeInput,
 } from '@/components/ui'
 
-type Divida = {
-  id: string
-  nome: string
-  tipo: string
-  credor: string | null
-  valor_total: number | null
-  saldo_devedor: number
-  valor_parcela: number | null
-  parcelas_total: number | null
-  parcelas_pagas: number
-  taxa_juros_am: number | null
-  data_inicio: string | null
-  data_fim: string | null
-  imovel_id: string | null
-  veiculo_id: string | null
-  quitada: boolean
-  observacoes: string | null
-  escopo: string
-}
-
 type Opcao = { id: string; nome: string }
+type Sub = { id: string; nome: string; categorias: { nome: string } | null }
 
 const TIPOS: { valor: string; rotulo: string }[] = [
   { valor: 'financiamento_imovel', rotulo: 'Financiamento de imóvel' },
@@ -64,6 +49,11 @@ const FORM_VAZIO = {
   quitada: false,
   observacoes: '',
   escopo: 'familiar',
+  sistema: '',
+  data_primeira_parcela: '',
+  conta_id: '',
+  subcategoria_obra_id: '',
+  subcategoria_parcela_id: '',
 }
 
 function numeroOuNulo(valor: string): number | null {
@@ -82,6 +72,11 @@ export default function DividasPage() {
   const [dividas, setDividas] = useState<Divida[]>([])
   const [imoveis, setImoveis] = useState<Opcao[]>([])
   const [veiculos, setVeiculos] = useState<Opcao[]>([])
+  const [contas, setContas] = useState<Opcao[]>([])
+  const [subcategorias, setSubcategorias] = useState<Sub[]>([])
+  const [parcelas, setParcelas] = useState<ParcelaRegistrada[]>([])
+  const [pagando, setPagando] = useState<Divida | null>(null)
+  const [vendoParcelas, setVendoParcelas] = useState<Divida | null>(null)
   const [carregando, setCarregando] = useState(true)
   const [busca, setBusca] = useState('')
   const [mostrarQuitadas, setMostrarQuitadas] = useState(false)
@@ -92,14 +87,27 @@ export default function DividasPage() {
   const [mensagem, setMensagem] = useState('')
 
   const carregar = useCallback(async () => {
-    const [{ data: dividasData }, { data: imoveisData }, { data: veiculosData }] = await Promise.all([
+    const [
+      { data: dividasData },
+      { data: imoveisData },
+      { data: veiculosData },
+      { data: contasData },
+      { data: subsData },
+      { data: parcelasData },
+    ] = await Promise.all([
       supabase.from('dividas').select('*').order('nome'),
       supabase.from('imoveis').select('id, nome').order('nome'),
       supabase.from('veiculos').select('id, nome').eq('ativo', true).order('nome'),
+      supabase.from('contas').select('id, nome').eq('ativo', true).order('nome'),
+      supabase.from('subcategorias').select('id, nome, categorias(nome)').order('nome'),
+      supabase.from('parcelas_divida').select('*').order('numero'),
     ])
     setDividas((dividasData ?? []) as Divida[])
     setImoveis((imoveisData ?? []) as Opcao[])
     setVeiculos((veiculosData ?? []) as Opcao[])
+    setContas((contasData ?? []) as Opcao[])
+    setSubcategorias((subsData ?? []) as unknown as Sub[])
+    setParcelas((parcelasData ?? []) as ParcelaRegistrada[])
     setCarregando(false)
   }, [])
 
@@ -152,6 +160,11 @@ export default function DividasPage() {
       quitada: d.quitada,
       observacoes: d.observacoes ?? '',
       escopo: d.escopo,
+      sistema: d.sistema ?? '',
+      data_primeira_parcela: d.data_primeira_parcela ?? '',
+      conta_id: d.conta_id ?? '',
+      subcategoria_obra_id: d.subcategoria_obra_id ?? '',
+      subcategoria_parcela_id: d.subcategoria_parcela_id ?? '',
     })
     setMensagem('')
     setModalAberto(true)
@@ -178,16 +191,30 @@ export default function DividasPage() {
       data_inicio: form.data_inicio || null,
       data_fim: form.data_fim || null,
       // Só faz sentido vincular ao bem correspondente ao tipo escolhido
-      imovel_id: form.tipo === 'financiamento_imovel' ? form.imovel_id || null : null,
+      // (empréstimo pode ter sido para obra num imóvel)
+      imovel_id: ['financiamento_imovel', 'emprestimo'].includes(form.tipo) ? form.imovel_id || null : null,
       veiculo_id: form.tipo === 'financiamento_veiculo' ? form.veiculo_id || null : null,
       quitada: form.quitada,
       observacoes: form.observacoes || null,
       escopo: form.escopo,
+      sistema: form.sistema || null,
+      data_primeira_parcela: form.data_primeira_parcela || null,
+      conta_id: form.conta_id || null,
+      subcategoria_obra_id: form.subcategoria_obra_id || null,
+      subcategoria_parcela_id: form.subcategoria_parcela_id || null,
     }
 
-    const { error } = editandoId
-      ? await supabase.from('dividas').update(registro).eq('id', editandoId)
-      : await supabase.from('dividas').insert({ ...registro, dono_id: userId })
+    const { data: salva, error } = editandoId
+      ? await supabase.from('dividas').update(registro).eq('id', editandoId).select('*').single()
+      : await supabase.from('dividas').insert({ ...registro, dono_id: userId }).select('*').single()
+
+    if (!error && salva) {
+      // Em SAC o saldo e a parcela vêm da tabela, não do que foi digitado
+      const sac = dadosSAC(salva as Divida)
+      if (sac) await sincronizarDivida(salva as Divida, sac, parcelas.filter((p) => p.divida_id === salva.id), {
+          taxaDaUltimaPaga: false,
+        })
+    }
 
     setSalvando(false)
     if (error) {
@@ -295,6 +322,7 @@ export default function DividasPage() {
               imoveis.find((i) => i.id === divida.imovel_id)?.nome ??
               veiculos.find((v) => v.id === divida.veiculo_id)?.nome ??
               null
+            const sac = dadosSAC(divida)
 
             return (
               <div key={divida.id} className="cartao p-4">
@@ -325,6 +353,14 @@ export default function DividasPage() {
                   <p className="rounded-lg bg-receita/10 px-3 py-2 text-sm font-medium text-receita">
                     Quitada
                   </p>
+                ) : sac ? (
+                  <CartaoSAC
+                    divida={divida}
+                    sac={sac}
+                    pagas={parcelas.filter((p) => p.divida_id === divida.id)}
+                    onPagar={() => setPagando(divida)}
+                    onVerParcelas={() => setVendoParcelas(divida)}
+                  />
                 ) : (
                   <>
                     <div className="grid grid-cols-2 gap-3 border-t border-borda pt-3">
@@ -419,8 +455,8 @@ export default function DividasPage() {
             </Campo>
           </div>
 
-          {form.tipo === 'financiamento_imovel' && imoveis.length > 0 && (
-            <Campo rotulo="Imóvel financiado">
+          {['financiamento_imovel', 'emprestimo'].includes(form.tipo) && imoveis.length > 0 && (
+            <Campo rotulo={form.tipo === 'emprestimo' ? 'Para qual imóvel (opcional)' : 'Imóvel financiado'}>
               <select
                 className={classeInput}
                 value={form.imovel_id}
@@ -488,7 +524,7 @@ export default function DividasPage() {
             <Campo rotulo="Juros (% ao mês)">
               <input
                 type="number"
-                step="0.01"
+                step="any"
                 className={classeInput}
                 value={form.taxa_juros_am}
                 onChange={(e) => setForm({ ...form, taxa_juros_am: e.target.value })}
@@ -511,6 +547,82 @@ export default function DividasPage() {
                 onChange={(e) => setForm({ ...form, data_fim: e.target.value })}
               />
             </Campo>
+          </div>
+
+          <div className="space-y-4 rounded-lg border border-borda p-3">
+            <Campo rotulo="Como a parcela é calculada">
+              <select
+                className={classeInput}
+                value={form.sistema}
+                onChange={(e) => setForm({ ...form, sistema: e.target.value })}
+              >
+                <option value="">Digito saldo e parcela à mão</option>
+                <option value="sac">SAC: o app calcula (amortização fixa, parcela cai todo mês)</option>
+              </select>
+            </Campo>
+
+            {form.sistema === 'sac' && (
+              <>
+                <Campo rotulo="Vencimento da 1ª parcela">
+                  <input
+                    type="date"
+                    className={classeInput}
+                    value={form.data_primeira_parcela}
+                    onChange={(e) => setForm({ ...form, data_primeira_parcela: e.target.value })}
+                    required
+                  />
+                </Campo>
+                <Campo rotulo="Conta onde o dinheiro entrou (opcional)">
+                  <select
+                    className={classeInput}
+                    value={form.conta_id}
+                    onChange={(e) => setForm({ ...form, conta_id: e.target.value })}
+                  >
+                    <option value="">Nenhuma</option>
+                    {contas.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.nome}
+                      </option>
+                    ))}
+                  </select>
+                </Campo>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Campo rotulo="Subcategoria das compras (neutras)">
+                    <select
+                      className={classeInput}
+                      value={form.subcategoria_obra_id}
+                      onChange={(e) => setForm({ ...form, subcategoria_obra_id: e.target.value })}
+                    >
+                      <option value="">Nenhuma</option>
+                      {subcategorias.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.categorias?.nome ? `${s.categorias.nome} › ` : ''}
+                          {s.nome}
+                        </option>
+                      ))}
+                    </select>
+                  </Campo>
+                  <Campo rotulo="Subcategoria da sua parte">
+                    <select
+                      className={classeInput}
+                      value={form.subcategoria_parcela_id}
+                      onChange={(e) => setForm({ ...form, subcategoria_parcela_id: e.target.value })}
+                    >
+                      <option value="">Nenhuma</option>
+                      {subcategorias.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.categorias?.nome ? `${s.categorias.nome} › ` : ''}
+                          {s.nome}
+                        </option>
+                      ))}
+                    </select>
+                  </Campo>
+                </div>
+                <p className="text-xs text-texto-suave">
+                  Em SAC o saldo devedor e a parcela são recalculados ao salvar e a cada parcela paga.
+                </p>
+              </>
+            )}
           </div>
 
           <div className="rounded-lg border border-borda p-3">
@@ -559,6 +671,33 @@ export default function DividasPage() {
           </div>
         </form>
       </Modal>
+
+      {pagando && dadosSAC(pagando) && (
+        <PagarParcela
+          divida={pagando}
+          sac={dadosSAC(pagando)!}
+          pagas={parcelas.filter((p) => p.divida_id === pagando.id)}
+          onFechar={() => setPagando(null)}
+          onSalvo={(texto) => {
+            setPagando(null)
+            setMensagem(texto)
+            carregar()
+          }}
+        />
+      )}
+
+      {vendoParcelas && dadosSAC(vendoParcelas) && (
+        <TabelaParcelas
+          divida={vendoParcelas}
+          sac={dadosSAC(vendoParcelas)!}
+          pagas={parcelas.filter((p) => p.divida_id === vendoParcelas.id)}
+          onFechar={() => setVendoParcelas(null)}
+          onAlterado={() => {
+            setVendoParcelas(null)
+            carregar()
+          }}
+        />
+      )}
     </Pagina>
   )
 }

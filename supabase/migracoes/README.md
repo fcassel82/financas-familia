@@ -14,6 +14,9 @@ cole o conteúdo do arquivo e rode. Não precisa de CLI.
 | `20261027_segue_mes_salario.sql` | Categorias da folha (salário, descontos, benefícios) seguem o mês do salário; o resto segue o calendário. | ✅ aplicada em 27/10/2026 |
 | `20261028_investimentos_banco.sql` | Investimentos do Meu Pluggy (saldo bruto) e a ligação com as contas de investimento do app, só para o administrador. | ✅ aplicada em 28/10/2026 |
 | `20261030_transacoes_banco_pendentes.sql` | Compras pendentes do cartão na caixa de entrada e o id da instituição para não duplicar quando o banco confirma. | ✅ aplicada em 30/10/2026 |
+| `20261113_divida_sac_obra.sql` | Dívida em SAC (tabela de parcelas calculada pelo app), parcelas pagas com valor real e parte de terceiros, e compras da obra sempre neutras. | ✅ aplicada em 13/11/2026 |
+| `20261113b_emprestimo_ampliacao.sql` | Dados do empréstimo da ampliação: Conta da obra, subcategorias, a dívida (Sicredi, 48x SAC) e a entrada + IOF. Rodar depois da anterior. | ✅ aplicada em 13/11/2026 |
+| `20261113c_obra_pix_itau.sql` | Os dois Pix do Itaú da obra (Jairo e Plastifibra) passam para a subcategoria da obra. | ✅ aplicada em 13/11/2026 |
 
 ## Como conferir que deu certo
 
