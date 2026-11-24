@@ -31,6 +31,7 @@ import {
   classeInput,
 } from '@/components/ui'
 import SaldosInvestimentos from './SaldosInvestimentos'
+import { EVENTO_BANCOS, marcarBuscaDeHoje } from '@/lib/sincronizarBancos'
 import DetalharSalario from './DetalharSalario'
 import { montarLinhasSalario, type LinhaSalario } from '@/lib/salario'
 
@@ -204,6 +205,9 @@ export default function BancosPage() {
     // não distingue esse caso de um setState realmente síncrono.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     carregar()
+    // A busca diária automática (AppShell) terminou: mostra o que chegou
+    window.addEventListener(EVENTO_BANCOS, carregar)
+    return () => window.removeEventListener(EVENTO_BANCOS, carregar)
   }, [carregar])
 
   async function buscarAgora() {
@@ -219,11 +223,7 @@ export default function BancosPage() {
       const corpo = await resposta.json()
       if (!resposta.ok) setMensagem(`Erro: ${corpo.error ?? 'não foi possível buscar nos bancos.'}`)
       else {
-        try {
-          localStorage.setItem('pluggy_ultima_busca', new Date().toDateString())
-        } catch {
-          // Sem armazenamento local: a busca automática só tenta de novo amanhã
-        }
+        marcarBuscaDeHoje()
         const erros = (corpo.erros as string[]) ?? []
         setMensagem(
           erros.length > 0

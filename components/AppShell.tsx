@@ -33,6 +33,7 @@ import {
   IconeTransferir,
 } from './Icones'
 import SeletorTema from './SeletorTema'
+import { sincronizarBancosHoje } from '@/lib/sincronizarBancos'
 
 type ItemNav = {
   rota: string
@@ -121,12 +122,21 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
       const { data: perfil } = await supabase
         .from('perfis')
-        .select('nome')
+        .select('nome, papel')
         .eq('id', data.session.user.id)
         .single()
       setNome(perfil?.nome ?? data.session.user.email ?? '')
+      ehAdmin = perfil?.papel === 'admin'
+      if (ehAdmin) sincronizarBancosHoje()
     }
+    let ehAdmin = false
     verificarSessao()
+
+    // No celular o app fica aberto por dias: ao voltar para ele, busca se ainda não buscou hoje
+    function aoVoltar() {
+      if (ehAdmin && document.visibilityState === 'visible') sincronizarBancosHoje()
+    }
+    document.addEventListener('visibilitychange', aoVoltar)
 
     // Sessão do Supabase expira em ~1h. Sem isto, o app continuaria renderizando
     // telas vazias (R$ 0,00) em vez de pedir login de novo.
@@ -137,7 +147,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       }
     })
 
-    return () => assinatura.subscription.unsubscribe()
+    return () => {
+      assinatura.subscription.unsubscribe()
+      document.removeEventListener('visibilitychange', aoVoltar)
+    }
   }, [naTelaDeLogin, router])
 
   // Fecha o menu do celular com a tecla Esc

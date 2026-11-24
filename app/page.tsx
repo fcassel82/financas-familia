@@ -30,6 +30,7 @@ import { IconeBanco, IconeGrafico, IconeImportar, IconeMais } from '@/components
 import { EstadoVazio, LinhaLink, Pagina, Seta } from '@/components/ui'
 import { janelaDosMeses, mesDoLancamento } from '@/lib/mesSalario'
 import { linkResumo } from '@/lib/resumo'
+import { EVENTO_BANCOS } from '@/lib/sincronizarBancos'
 
 type Pendencia = {
   id: string
@@ -202,7 +203,8 @@ export default function InicioPage() {
 
       setCarregando(false)
 
-      // Bancos (Meu Pluggy): só o administrador; busca sozinha no máximo 1 vez por dia neste aparelho
+      // Bancos (Meu Pluggy): só o administrador vê quantas faltam revisar. A busca
+      // diária roda no AppShell (lib/sincronizarBancos); ao terminar, recontamos
       if (perfil?.papel === 'admin') {
         const contarBancos = async () => {
           const { count } = await supabase
@@ -212,35 +214,19 @@ export default function InicioPage() {
           setQtdBancos(count ?? 0)
         }
         await contarBancos()
-        let jaBuscouHoje = false
-        try {
-          jaBuscouHoje = localStorage.getItem('pluggy_ultima_busca') === new Date().toDateString()
-        } catch {
-          // Sem armazenamento local: busca de novo (a busca não duplica nada)
-        }
-        if (!jaBuscouHoje) {
-          const { data: sessao } = await supabase.auth.getSession()
-          const token = sessao.session?.access_token
-          fetch('/api/pluggy/sincronizar', {
-            method: 'POST',
-            headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-          })
-            .then((resposta) => {
-              if (!resposta.ok) return
-              try {
-                localStorage.setItem('pluggy_ultima_busca', new Date().toDateString())
-              } catch {
-                // idem acima
-              }
-              return contarBancos()
-            })
-            .catch(() => {
-              // Sem conexão com os bancos agora: tenta de novo na próxima abertura
-            })
+        if (!desmontado) {
+          window.addEventListener(EVENTO_BANCOS, contarBancos)
+          recontar = contarBancos
         }
       }
     }
+    let recontar: (() => Promise<void>) | null = null
+    let desmontado = false
     carregar()
+    return () => {
+      desmontado = true
+      if (recontar) window.removeEventListener(EVENTO_BANCOS, recontar)
+    }
   }, [router, mesAtual])
 
   // "Saldo em contas" é só liquidez disponível — conta corrente e poupança.
